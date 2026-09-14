@@ -33,6 +33,17 @@ export type ForecastResult = {
 const finite = (v: number | null | undefined): v is number => v !== null && v !== undefined && Number.isFinite(v);
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+function freshness(data: AdvancedMarketData): { fresh: boolean; ageMs: number | null } {
+  if (data.symbol === 'BACKTEST') return { fresh: true, ageMs: 0 };
+  const fetched = Date.parse(data.fetchedAt);
+  if (!Number.isFinite(fetched)) return { fresh: false, ageMs: null };
+  const ageMs = Math.max(0, Date.now() - fetched);
+  const candleClose = data.futures.candles.at(-1)?.closeTime ?? data.spot.candles.at(-1)?.closeTime ?? null;
+  const candleAge = finite(candleClose) ? Math.max(0, Date.now() - candleClose) : null;
+  const effectiveAge = candleAge === null ? ageMs : Math.max(ageMs, candleAge);
+  return { fresh: effectiveAge <= 120_000, ageMs: effectiveAge };
+}
+
 export function buildSignal(data: AdvancedMarketData, technical: TechnicalAnalysis): SignalResult {
   const price = data.futures.price ?? data.spot.price;
   const atr = technical.indicators.atr14;
@@ -44,11 +55,16 @@ export function buildSignal(data: AdvancedMarketData, technical: TechnicalAnalys
   const imbalance = technical.liquidity.imbalance;
   const funding = data.futures.fundingRate;
   const oi = data.futures.openInterest;
-  const usable = finite(price) && finite(atr) && technical.confidence >= 75 && data.spot.candles.length >= 20;
+  const freshnessState = freshness(data);
+  const sourceDown = Object.values(data.sourceHealth).filter(v => v === 'down').length;
+  const usable = finite(price) && finite(atr) && technical.confidence >= 75 && data.spot.candles.length >= 20 && freshnessState.fresh;
   const evidence: string[] = [];
   const conflicts: string[] = [];
+
+  if (!freshnessState.fresh && data.symbol !== 'BACKTEST') conflicts.push('Market snapshot is stale; directional output is blocked until fresh data arrives.');
+  if (sourceDown > 0) conflicts.push(`${sourceDown} market data source(s) are unavailable.`);
   if (!usable) {
-    return { signal:'NO TRADE', score:0, confidence:0, entry:price ?? null, stopLoss:null, takeProfits:[], riskReward:null, regime:technical.structure.trend, invalidation:'Wait for sufficient, fresh and internally consistent market data.', evidence, conflicts:['Insufficient technical coverage or market data.'], dataFresh:false, generatedAt:new Date().toISOString() };
+    return { signal:'NO TRADE', score:0, confidence:0, entry:price ?? null, stopLoss:null, takeProfits:[], riskReward:null, regime:technical.structure.trend, invalidation:'Wait for sufficient, fresh and internally consistent market data.', evidence, conflicts: conflicts.length ? conflicts : ['Insufficient technical coverage or market data.'], dataFresh:freshnessState.fresh, generatedAt:new Date().toISOString() };
   }
 
   let score = 0;
@@ -80,7 +96,8 @@ export function buildSignal(data: AdvancedMarketData, technical: TechnicalAnalys
 export function buildForecast(data: AdvancedMarketData, technical: TechnicalAnalysis): ForecastResult {
   const price = data.futures.price ?? data.spot.price;
   const atr = technical.indicators.atr14;
-  if (!finite(price) || !finite(atr) || technical.confidence < 75) return { bias:'UNAVAILABLE', horizon:'next 4-12 candles', confidence:0, expectedLow:null, expectedHigh:null, evidence:[], risks:['Insufficient validated data.'], invalidation:'Obtain a fresh technical snapshot with adequate candle history.' };
+  const freshnessState = freshness(data);
+  if (!finite(price) || !finite(atr) || technical.confidence < 75 || !freshnessState.fresh) return { bias:'UNAVAILABLE', horizon:'next 4-12 candles', confidence:0, expectedLow:null, expectedHigh:null, evidence:[], risks:['Insufficient or stale validated data.'], invalidation:'Obtain a fresh technical snapshot with adequate candle history.' };
   const bullish = technical.structure.trend === 'UP' && (technical.indicators.rsi14 ?? 50) >= 50;
   const bearish = technical.structure.trend === 'DOWN' && (technical.indicators.rsi14 ?? 50) <= 50;
   const bias = bullish ? 'BULLISH' : bearish ? 'BEARISH' : 'NEUTRAL';
