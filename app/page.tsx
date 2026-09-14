@@ -4,75 +4,45 @@ import { useEffect, useMemo, useState } from 'react';
 
 type Market = { symbol: string; name: string; price: number; change: number; currency?: string };
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
+type Lang = 'auto' | 'en' | 'fa' | 'de' | 'ar' | 'tr' | 'es';
 
 const fallbackMarkets: Market[] = [
-  { symbol: 'BTC', name: 'Bitcoin', price: 0, change: 0 },
-  { symbol: 'ETH', name: 'Ethereum', price: 0, change: 0 },
-  { symbol: 'SOL', name: 'Solana', price: 0, change: 0 },
-  { symbol: 'BNB', name: 'BNB', price: 0, change: 0 },
+  { symbol: 'BTC', name: 'Bitcoin', price: 0, change: 0 }, { symbol: 'ETH', name: 'Ethereum', price: 0, change: 0 },
+  { symbol: 'SOL', name: 'Solana', price: 0, change: 0 }, { symbol: 'BNB', name: 'BNB', price: 0, change: 0 },
 ];
-
 const fallbackNews: Story[] = [
   { title: 'Live market feed is connecting to public data sources.', source: 'Market Intel', publishedAt: new Date().toISOString(), url: '#', category: 'SYSTEM' },
   { title: 'Crypto, macro and global-market headlines will appear here.', source: 'Market Intel', publishedAt: new Date().toISOString(), url: '#', category: 'MARKETS' },
 ];
+const copy = {
+  en: { nav:['News','Markets','Signals','Watchlist'], eyebrow:'Global market intelligence', hero:'See the market.', em:'Before it moves.', desc:'Crypto prices and global-market headlines in one fast, dark intelligence dashboard.', live:'LIVE DATA', sync:'SYNCING…', refresh:'↻ Refresh', feed:'INTELLIGENCE FEED', breaking:'Breaking & important news', search:'Search headlines…', latest:'Latest intelligence', pulse:'Market pulse', watch:'Watchlist', stories:'stories', updated:'Updated', sources:'Public sources · server-side aggregation', ready:'Personalized alerts are ready for the next account layer.', footer:'Crypto + Markets Intelligence · Data can be delayed · Not financial advice' },
+  fa: { nav:['اخبار','بازارها','سیگنال‌ها','دیده‌بان'], eyebrow:'هوش بازار جهانی', hero:'بازار را ببین.', em:'قبل از حرکتش.', desc:'قیمت رمزارزها و مهم‌ترین اخبار بازارهای جهانی در یک داشبورد سریع و حرفه‌ای.', live:'داده زنده', sync:'در حال همگام‌سازی…', refresh:'↻ بروزرسانی', feed:'فید اطلاعات', breaking:'اخبار مهم و فوری', search:'جستجوی خبر…', latest:'آخرین اطلاعات', pulse:'نبض بازار', watch:'دیده‌بان', stories:'خبر', updated:'آخرین بروزرسانی', sources:'منابع عمومی · پردازش سمت سرور', ready:'هشدارهای شخصی‌سازی‌شده در لایه حساب کاربری آماده خواهند شد.', footer:'هوش بازار و رمزارز · ممکن است داده‌ها با تأخیر باشند · توصیه مالی نیست' },
+  de: { nav:['News','Märkte','Signale','Watchlist'], eyebrow:'Globale Marktintelligenz', hero:'Den Markt sehen.', em:'Bevor er sich bewegt.', desc:'Krypto-Preise und globale Marktnachrichten in einem schnellen, dunklen Dashboard.', live:'LIVE-DATEN', sync:'SYNCHRONISIERE…', refresh:'↻ Aktualisieren', feed:'INTELLIGENCE FEED', breaking:'Wichtige aktuelle Nachrichten', search:'Nachrichten suchen…', latest:'Neueste Informationen', pulse:'Marktimpuls', watch:'Watchlist', stories:'Meldungen', updated:'Aktualisiert', sources:'Öffentliche Quellen · serverseitige Aggregation', ready:'Personalisierte Alarme folgen mit der nächsten Kontoschicht.', footer:'Krypto + Märkte · Daten können verzögert sein · Keine Finanzberatung' },
+  ar: { nav:['الأخبار','الأسواق','الإشارات','المراقبة'], eyebrow:'ذكاء الأسواق العالمية', hero:'راقب السوق.', em:'قبل أن يتحرك.', desc:'أسعار العملات المشفرة وأهم أخبار الأسواق في لوحة سريعة واحترافية.', live:'بيانات مباشرة', sync:'جارٍ المزامنة…', refresh:'↻ تحديث', feed:'موجز المعلومات', breaking:'أهم الأخبار العاجلة', search:'ابحث في الأخبار…', latest:'أحدث المعلومات', pulse:'نبض السوق', watch:'قائمة المراقبة', stories:'أخبار', updated:'آخر تحديث', sources:'مصادر عامة · تجميع من الخادم', ready:'التنبيهات المخصصة جاهزة للطبقة القادمة للحساب.', footer:'العملات والأسواق · قد تتأخر البيانات · ليست نصيحة مالية' },
+  tr: { nav:['Haberler','Piyasalar','Sinyaller','İzleme'], eyebrow:'Küresel piyasa istihbaratı', hero:'Piyasayı gör.', em:'Hareket etmeden önce.', desc:'Kripto fiyatları ve küresel piyasa haberleri tek hızlı, karanlık panelde.', live:'CANLI VERİ', sync:'SENKRONİZE…', refresh:'↻ Yenile', feed:'İSTİHBARAT AKIŞI', breaking:'Son dakika ve önemli haberler', search:'Haberlerde ara…', latest:'Son bilgiler', pulse:'Piyasa nabzı', watch:'İzleme listesi', stories:'haber', updated:'Güncellendi', sources:'Açık kaynaklar · sunucu tarafı toplama', ready:'Kişisel uyarılar sonraki hesap katmanında hazır olacak.', footer:'Kripto + Piyasalar · Veriler gecikebilir · Yatırım tavsiyesi değildir' },
+  es: { nav:['Noticias','Mercados','Señales','Lista'], eyebrow:'Inteligencia de mercados globales', hero:'Mira el mercado.', em:'Antes de que se mueva.', desc:'Precios cripto y noticias globales en un panel rápido y oscuro.', live:'DATOS EN VIVO', sync:'SINCRONIZANDO…', refresh:'↻ Actualizar', feed:'FLUJO DE INTELIGENCIA', breaking:'Noticias importantes y de última hora', search:'Buscar noticias…', latest:'Última inteligencia', pulse:'Pulso del mercado', watch:'Lista de seguimiento', stories:'historias', updated:'Actualizado', sources:'Fuentes públicas · agregación en servidor', ready:'Las alertas personalizadas llegarán con la próxima capa de cuenta.', footer:'Cripto + Mercados · Los datos pueden retrasarse · No es asesoramiento financiero' },
+};
 
-function money(value: number) {
-  if (!value) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: value > 100 ? 0 : 2 }).format(value);
-}
-function ago(iso: string) {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  return mins < 1 ? 'now' : mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
-}
+function detectLanguage(): Exclude<Lang,'auto'> { const l = navigator.language.toLowerCase(); if (l.startsWith('fa')) return 'fa'; if (l.startsWith('de')) return 'de'; if (l.startsWith('ar')) return 'ar'; if (l.startsWith('tr')) return 'tr'; if (l.startsWith('es')) return 'es'; return 'en'; }
+function money(value:number){ if(!value)return '—'; return new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',maximumFractionDigits:value>100?0:2}).format(value); }
+function ago(iso:string){ const mins=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/60000)); return mins<1?'now':mins<60?`${mins}m ago`:`${Math.round(mins/60)}h ago`; }
 
-export default function Home() {
-  const [markets, setMarkets] = useState<Market[]>(fallbackMarkets);
-  const [news, setNews] = useState<Story[]>(fallbackNews);
-  const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
-  const [lastUpdated, setLastUpdated] = useState('—');
-
-  async function refresh() {
-    setLoading(true);
-    try {
-      const [m, n] = await Promise.all([fetch('/api/market', { cache: 'no-store' }), fetch('/api/news', { cache: 'no-store' })]);
-      if (m.ok) setMarkets((await m.json()).markets ?? fallbackMarkets);
-      if (n.ok) setNews((await n.json()).news ?? fallbackNews);
-      setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-    } finally { setLoading(false); }
-  }
-  useEffect(() => { refresh(); const id = setInterval(refresh, 60000); return () => clearInterval(id); }, []);
-
-  const filteredNews = useMemo(() => news.filter(x => `${x.title} ${x.source} ${x.category}`.toLowerCase().includes(query.toLowerCase())), [news, query]);
-
+export default function Home(){
+  const [markets,setMarkets]=useState<Market[]>(fallbackMarkets); const [news,setNews]=useState<Story[]>(fallbackNews); const [loading,setLoading]=useState(true); const [query,setQuery]=useState(''); const [lastUpdated,setLastUpdated]=useState('—');
+  const [language,setLanguage]=useState<Lang>('auto'); const [installEvent,setInstallEvent]=useState<any>(null); const active=language==='auto'?detectLanguage():language; const t=copy[active];
+  async function refresh(){setLoading(true);try{const [m,n]=await Promise.all([fetch('/api/market',{cache:'no-store'}),fetch('/api/news',{cache:'no-store'})]);if(m.ok)setMarkets((await m.json()).markets??fallbackMarkets);if(n.ok)setNews((await n.json()).news??fallbackNews);setLastUpdated(new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));}finally{setLoading(false);}}
+  useEffect(()=>{refresh();const id=setInterval(refresh,60000);return()=>clearInterval(id)},[]);
+  useEffect(()=>{const onBefore=(e:Event)=>{e.preventDefault();setInstallEvent(e)};window.addEventListener('beforeinstallprompt',onBefore);if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});return()=>window.removeEventListener('beforeinstallprompt',onBefore)},[]);
+  useEffect(()=>{document.documentElement.lang=active;document.documentElement.dir=active==='fa'||active==='ar'?'rtl':'ltr';},[active]);
+  const filteredNews=useMemo(()=>news.filter(x=>`${x.title} ${x.source} ${x.category}`.toLowerCase().includes(query.toLowerCase())),[news,query]);
+  const install=async()=>{if(!installEvent)return;installEvent.prompt();await installEvent.userChoice;setInstallEvent(null)};
   return <main className="shell">
-    <header className="top">
-      <a className="brand" href="#top">MARKET<span>/</span>INTEL</a>
-      <nav className="nav"><a href="#news">News</a><a href="#markets">Markets</a><a href="#signals">Signals</a><a href="#watchlist">Watchlist</a></nav>
-      <button className="refresh" onClick={refresh}>{loading ? 'SYNCING…' : '↻ Refresh'}</button>
-    </header>
-
-    <section className="hero" id="top">
-      <div><div className="eyebrow"><i className="dot"/> Global market intelligence</div><h1>See the market.<br/><em>Before it moves.</em></h1><p>Crypto prices and global-market headlines in one fast, dark intelligence dashboard.</p></div>
-      <div className="status"><b>LIVE DATA</b><span>Updated {lastUpdated}</span><small>Public sources · server-side aggregation</small></div>
-    </section>
-
-    <section className="ticker" id="markets">
-      {markets.map(x => <div className="card" key={x.symbol}><div className="label">{x.symbol}/USD</div><div className="price">{money(x.price)}</div><div className={x.change >= 0 ? 'up' : 'down'}>{x.change >= 0 ? '+' : ''}{x.change.toFixed(2)}%</div><div className="mini">24h change</div></div>)}
-    </section>
-
-    <div className="toolbar"><div className="sectionTitle"><span>INTELLIGENCE FEED</span><b>Breaking & important news</b></div><input aria-label="Search news" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search headlines…"/></div>
-
-    <section className="grid">
-      <div className="section" id="news"><div className="sectionHead"><h2>Latest intelligence</h2><small>{filteredNews.length} stories</small></div>
-        {filteredNews.slice(0, 12).map((n, i) => <a className="news" href={n.url} target={n.url === '#' ? undefined : '_blank'} rel="noreferrer" key={`${n.title}-${i}`}><div className="rank">{String(i + 1).padStart(2, '0')}</div><div><div className="tag">{n.category} · {n.source}</div><h3>{n.title}</h3><p>{ago(n.publishedAt)}</p></div><div className="arrow">↗</div></a>)}
-      </div>
-      <aside className="section" id="signals"><div className="sectionHead"><h2>Market pulse</h2><small>Live</small></div>
-        {markets.slice(0, 4).map((m, i) => <div className="signal" key={m.symbol}><div><strong>{m.name}</strong><span>{money(m.price)}</span></div><div className="signalRow"><span className={m.change >= 0 ? 'up' : 'down'}>{m.change >= 0 ? '+' : ''}{m.change.toFixed(2)}%</span><div className="bar"><i style={{ width: `${Math.min(100, Math.max(5, 50 + m.change * 8))}%` }}/></div></div></div>)}
-        <div className="signal" id="watchlist"><strong>Watchlist</strong><p>BTC · ETH · SOL · BNB</p><small>Personalized alerts are ready for the next account layer.</small></div>
-      </aside>
-    </section>
-    <footer className="footer"><b>MARKET/INTEL</b> · Crypto + Markets Intelligence · Data can be delayed · Not financial advice</footer>
+    <header className="top"><a className="brand" href="#top">MARKET<span>/</span>INTEL</a><nav className="nav">{t.nav.map((x,i)=><a href={['#news','#markets','#signals','#watchlist'][i]} key={x}>{x}</a>)}</nav><div className="controls"><select value={language} onChange={e=>setLanguage(e.target.value as Lang)} aria-label="Language"><option value="auto">Auto / {active.toUpperCase()}</option><option value="en">English</option><option value="fa">فارسی</option><option value="de">Deutsch</option><option value="ar">العربية</option><option value="tr">Türkçe</option><option value="es">Español</option></select>{installEvent&&<button className="install" onClick={install}>Install App</button>}<button className="refresh" onClick={refresh}>{loading?t.sync:t.refresh}</button></div></header>
+    <section className="hero" id="top"><div><div className="eyebrow"><i className="dot"/>{t.eyebrow}</div><h1>{t.hero}<br/><em>{t.em}</em></h1><p>{t.desc}</p></div><div className="status"><b>{t.live}</b><span>{t.updated} {lastUpdated}</span><small>{t.sources}</small></div></section>
+    <section className="ticker" id="markets">{markets.map(x=><div className="card" key={x.symbol}><div className="label">{x.symbol}/USD</div><div className="price">{money(x.price)}</div><div className={x.change>=0?'up':'down'}>{x.change>=0?'+':''}{x.change.toFixed(2)}%</div><div className="mini">24h change</div></div>)}</section>
+    <div className="toolbar"><div className="sectionTitle"><span>{t.feed}</span><b>{t.breaking}</b></div><input aria-label={t.search} value={query} onChange={e=>setQuery(e.target.value)} placeholder={t.search}/></div>
+    <section className="grid"><div className="section" id="news"><div className="sectionHead"><h2>{t.latest}</h2><small>{filteredNews.length} {t.stories}</small></div>{filteredNews.slice(0,12).map((n,i)=><a className="news" href={n.url} target={n.url==='#'?undefined:'_blank'} rel="noreferrer" key={`${n.title}-${i}`}><div className="rank">{String(i+1).padStart(2,'0')}</div><div><div className="tag">{n.category} · {n.source}</div><h3>{n.title}</h3><p>{ago(n.publishedAt)}</p></div><div className="arrow">↗</div></a>)}</div>
+      <aside className="section" id="signals"><div className="sectionHead"><h2>{t.pulse}</h2><small>Live</small></div>{markets.slice(0,4).map(m=><div className="signal" key={m.symbol}><div><strong>{m.name}</strong><span>{money(m.price)}</span></div><div className="signalRow"><span className={m.change>=0?'up':'down'}>{m.change>=0?'+':''}{m.change.toFixed(2)}%</span><div className="bar"><i style={{width:`${Math.min(100,Math.max(5,50+m.change*8))}%`}}/></div></div></div>)}<div className="signal" id="watchlist"><strong>{t.watch}</strong><p>BTC · ETH · SOL · BNB</p><small>{t.ready}</small></div></aside></section>
+    <footer className="footer"><b>MARKET/INTEL</b> · {t.footer}</footer>
   </main>;
 }
