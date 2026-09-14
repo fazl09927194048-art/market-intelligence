@@ -38,7 +38,7 @@ const TIMEOUT = 7000;
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
 
-async function getJson(url: string) {
+async function getJson(url: string): Promise<any> {
   const response = await fetch(url, {
     cache: 'no-store',
     signal: AbortSignal.timeout(TIMEOUT),
@@ -115,11 +115,17 @@ export async function getAdvancedMarketData(rawSymbol = 'BTCUSDT', rawInterval =
     }, { bids: [], asks: [], lastUpdateId: null }, warnings, sourceHealth),
     safe('Binance Spot Trades', async () => {
       const rows = await getJson(`${spotBase}/trades?symbol=${symbol}&limit=100`);
-      return (rows ?? []).map((r: Record<string, unknown>) => ({
-        id: n(r.id), price: n(r.price), quantity: n(r.qty), time: n(r.time), isBuyerMaker: Boolean(r.isBuyerMaker),
-      })).filter((r: { id: number | null; price: number | null; quantity: number | null; time: number | null }) =>
-        r.id !== null && r.price !== null && r.price > 0 && r.quantity !== null && r.quantity >= 0 && r.time !== null)
-        .map(r => ({ id: r.id as number, price: r.price as number, quantity: r.quantity as number, time: r.time as number, isBuyerMaker: r.isBuyerMaker })) as Trade[];
+      const result: Trade[] = [];
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const r = row as Record<string, unknown>;
+        const id = n(r.id);
+        const price = n(r.price);
+        const quantity = n(r.qty);
+        const time = n(r.time);
+        if (id === null || price === null || price <= 0 || quantity === null || quantity < 0 || time === null) continue;
+        result.push({ id, price, quantity, time, isBuyerMaker: Boolean(r.isBuyerMaker) });
+      }
+      return result;
     }, [], warnings, sourceHealth),
     safe('Binance Futures Price', async () => n((await getJson(`${futuresBase}/ticker/price?symbol=${symbol}`))?.price), null, warnings, sourceHealth),
     safe('Binance Futures OHLCV', async () => (await getJson(`${futuresBase}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`)).map(candle).filter(Boolean) as Candle[], [], warnings, sourceHealth),
@@ -133,13 +139,16 @@ export async function getAdvancedMarketData(rawSymbol = 'BTCUSDT', rawInterval =
     }, { value: null, time: null }, warnings, sourceHealth),
     safe('Binance Futures Liquidations', async () => {
       const rows = await getJson(`${futuresBase}/allForceOrders?symbol=${symbol}&limit=100`);
-      return (rows ?? []).map((r: Record<string, unknown>): Liquidation | null => {
+      const result: Liquidation[] = [];
+      for (const row of Array.isArray(rows) ? rows : []) {
+        const r = row as Record<string, unknown>;
         const price = n(r.price);
         const quantity = n(r.origQty);
         const time = n(r.time);
-        if (price === null || price <= 0 || quantity === null || quantity < 0 || time === null) return null;
-        return { symbol: String(r.symbol ?? symbol), side: r.side === 'SELL' ? 'SELL' : 'BUY', price, quantity, time };
-      }).filter((r: Liquidation | null): r is Liquidation => r !== null);
+        if (price === null || price <= 0 || quantity === null || quantity < 0 || time === null) continue;
+        result.push({ symbol: String(r.symbol ?? symbol), side: r.side === 'SELL' ? 'SELL' : 'BUY', price, quantity, time });
+      }
+      return result;
     }, [], warnings, sourceHealth),
   ]);
 
