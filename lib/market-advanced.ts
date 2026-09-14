@@ -92,7 +92,7 @@ async function safe<T>(
   }
 }
 
-export async function getAdvancedMarketData(rawSymbol = 'BTCUSDT', rawInterval = '1m', rawLimit = DEFAULT_LIMIT): Promise<AdvancedMarketData> {
+export async function getAdvancedMarketData(rawSymbol = 'BTCUSDT', rawInterval = '1m', rawLimit: number | string = DEFAULT_LIMIT): Promise<AdvancedMarketData> {
   const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const interval = /^(1s|1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/.test(rawInterval) ? rawInterval : '1m';
   const parsedLimit = Number(rawLimit);
@@ -129,11 +129,11 @@ export async function getAdvancedMarketData(rawSymbol = 'BTCUSDT', rawInterval =
     }, [], warnings, sourceHealth),
     safe('Binance Futures Price', async () => n((await getJson(`${futuresBase}/ticker/price?symbol=${symbol}`))?.price), null, warnings, sourceHealth),
     safe('Binance Futures OHLCV', async () => (await getJson(`${futuresBase}/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`)).map(candle).filter(Boolean) as Candle[], [], warnings, sourceHealth),
-    safe('Binance Futures Funding', async () => {
+    safe<{ rate: number | null; time: number | null }>('Binance Futures Funding', async () => {
       const r = await getJson(`${futuresBase}/premiumIndex?symbol=${symbol}`);
       return { rate: n(r?.lastFundingRate), time: n(r?.nextFundingTime) };
     }, { rate: null, time: null }, warnings, sourceHealth),
-    safe('Binance Futures Open Interest', async () => {
+    safe<{ value: number | null; time: number | null }>('Binance Futures Open Interest', async () => {
       const r = await getJson(`${futuresBase}/openInterest?symbol=${symbol}`);
       return { value: positive(r?.openInterest), time: Date.now() };
     }, { value: null, time: null }, warnings, sourceHealth),
