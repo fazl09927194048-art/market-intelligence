@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Market/Intel — AI Market Overlay",
-  "version": "0.3.0",
-  "description": "Live market intelligence overlay for supported chart pages. No trading, order, withdrawal, or transfer permissions.",
+  "version": "0.4.0",
+  "description": "Live market intelligence overlay for supported chart pages. Detects symbols and page prices, connects to the intelligence core, and never fabricates market results.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://*.binance.com/*",
