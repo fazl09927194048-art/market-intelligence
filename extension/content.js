@@ -50,17 +50,55 @@
   const symbolEl = $('#mi-symbol'), price = $('#mi-price'), status = $('#mi-status');
   let currentSymbol = null;
   let refreshTimer = null;
+  let pageWatchTimer = null;
+  let lastPagePrice = null;
+
+  function normalizeSymbol(raw) {
+    if (!raw) return null;
+    let value = String(raw).toUpperCase().replace(/\s+/g, '').replace(/[-_/:]/g, '');
+    value = value.replace(/^(BINANCE|KUCOIN|TRADINGVIEW)/, '');
+    if (value.endsWith('PERP')) value = value.slice(0, -4);
+    const known = ['BTC','ETH','SOL','BNB','XRP','ADA','DOGE','AVAX','LINK','DOT','MATIC','SUI','TON','TRX','LTC'];
+    const base = known.find(x => value.startsWith(x));
+    if (!base) return null;
+    const quote = value.includes('USDT') ? 'USDT' : value.includes('USD') ? 'USD' : 'USDT';
+    return `${base}${quote === 'USD' ? 'USDT' : quote}`;
+  }
 
   function detect() {
-    const text = `${document.title} ${location.pathname} ${location.search}`;
-    const m = text.match(/(?:BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|LINK)[-_\/]?(?:USDT|USD)?/i);
-    if (!m) return 'BTCUSDT';
-    const raw = m[0].toUpperCase();
-    return raw.endsWith('USDT') ? raw : `${raw.replace(/[-\/]USD$/,'')}USDT`;
+    const urlText = `${location.hostname} ${location.pathname} ${location.search}`;
+    const titleText = document.title || '';
+    const candidates = [
+      urlText.match(/(?:symbol=|pair=|market=)([A-Za-z0-9_-]+)/i)?.[1],
+      location.pathname.match(/(?:spot|futures|perpetual|symbols?)\/([A-Za-z0-9_-]+)/i)?.[1],
+      titleText.match(/(?:BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|LINK|DOT|SUI|TON|TRX|LTC)[-_\/]?(?:USDT|USD|PERP)?/i)?.[0],
+      document.body.innerText.match(/(?:BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|LINK|DOT|SUI|TON|TRX|LTC)[-_\/]?(?:USDT|USD|PERP)?/i)?.[0]
+    ];
+    for (const candidate of candidates) {
+      const symbol = normalizeSymbol(candidate);
+      if (symbol) return symbol;
+    }
+    return 'BTCUSDT';
+  }
+
+  function extractPagePrice() {
+    const selectors = [
+      '[data-testid*="price"]','[class*="price"]','[class*="Price"]','[data-test*="price"]','[aria-label*="price" i]'
+    ];
+    for (const selector of selectors) {
+      const nodes = document.querySelectorAll(selector);
+      for (const node of nodes) {
+        const text = String(node.textContent || '').replace(/,/g, '').replace(/\s/g, '');
+        const match = text.match(/\$?(\d+(?:\.\d+)?)/);
+        const value = match ? Number(match[1]) : NaN;
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+    }
+    return null;
   }
 
   function setSymbol(next, notifyStream = true) {
-    const normalized = String(next || 'BTCUSDT').toUpperCase();
+    const normalized = normalizeSymbol(next) || 'BTCUSDT';
     if (normalized === currentSymbol) return;
     currentSymbol = normalized;
     symbolEl.textContent = currentSymbol;
@@ -74,7 +112,7 @@
     $('#mi-consensus').textContent = consensus?.direction || '—';
     $('#mi-confidence').textContent = `${Math.round(signal?.confidence ?? consensus?.confidence ?? 0)}%`;
     $('#mi-regime').textContent = data?.technical?.structure?.trend || 'UNKNOWN';
-    $('#mi-data').textContent = data?.dataValid === true ? 'VALID' : 'CHECK';
+    $('#mi-data').textContent = signal?.dataFresh === false || data?.dataValid === false ? 'STALE' : data?.dataValid === true ? 'VALID' : 'CHECK';
     const analysts = Array.isArray(data?.analysts) ? data.analysts : [];
     const events = Array.isArray(data?.events) ? data.events : [];
     const news = Array.isArray(data?.news) ? data.news : [];
@@ -88,7 +126,7 @@
       `TP: ${(signal?.takeProfits || []).join(', ') || 'n/a'}`,
       `RR: ${signal?.riskReward ?? 'n/a'}`,
       `News: ${news.length} · Events: ${events.length}`,
-      `Data valid: ${data?.dataValid === true ? 'YES' : 'NO'}`,
+      `Data fresh: ${signal?.dataFresh === true ? 'YES' : 'NO'}`,
       `Warnings: ${(data?.warnings || []).join(' | ') || 'none'}`,
     ].join('\n');
   }
@@ -114,6 +152,19 @@
     }, 30000);
   }
 
+  function startPageWatch() {
+    clearInterval(pageWatchTimer);
+    pageWatchTimer = setInterval(() => {
+      const detected = detect();
+      if (detected !== currentSymbol && panel.hidden === false) setSymbol(detected);
+      const pagePrice = extractPagePrice();
+      if (Number.isFinite(pagePrice) && pagePrice !== lastPagePrice) {
+        lastPagePrice = pagePrice;
+        if (!window.marketIntelStream) price.textContent = pagePrice.toLocaleString();
+      }
+    }, 2500);
+  }
+
   btn.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) { setSymbol(detect()); request(false); } };
   close.onclick = () => { panel.hidden = true; };
   scan.onclick = () => request(true, 'scan');
@@ -133,4 +184,5 @@
 
   setSymbol(detect());
   startAutoRefresh();
+  startPageWatch();
 })();
