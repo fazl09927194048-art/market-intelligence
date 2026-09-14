@@ -1,33 +1,11 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Market/Intel</title>
-  <link rel="stylesheet" href="popup.css">
-</head>
-<body>
-  <main>
-    <header><strong>MARKET/INTEL</strong><span id="status">●</span></header>
-    <section class="symbol"><span id="symbol">Detecting…</span><span id="price">—</span></section>
-    <section class="grid">
-      <div><small>SIGNAL</small><b id="signal">—</b></div>
-      <div><small>FORECAST</small><b id="forecast">—</b></div>
-      <div><small>CONSENSUS</small><b id="consensus">—</b></div>
-      <div><small>CONFIDENCE</small><b id="confidence">—</b></div>
-    </section>
-    <section class="risk">
-      <div><small>ENTRY</small><b id="entry">—</b></div>
-      <div><small>STOP</small><b id="sl">—</b></div>
-      <div><small>TARGET</small><b id="tp">—</b></div>
-      <div><small>R:R</small><b id="rr">—</b></div>
-    </section>
-    <div class="meta" id="meta">Waiting for live analysis…</div>
-    <div class="actions"><button id="scan">Deep Scan</button><button id="refresh">Refresh</button></div>
-    <button class="details" id="details">Evidence / Raw Analysis</button>
-    <pre class="details-panel" id="detailsPanel" hidden></pre>
-    <div class="warning" id="warning"></div>
-  </main>
-  <script src="popup.js"></script>
-</body>
-</html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Market/Intel</title><link rel="stylesheet" href="popup.css"></head>
+<body><main>
+<header><strong>MARKET/INTEL</strong><span id="status">●</span></header>
+<section class="symbol"><span id="symbol">Detecting…</span><span id="price">—</span></section>
+<section class="grid"><div><small>SIGNAL</small><b id="signal">—</b></div><div><small>FORECAST</small><b id="forecast">—</b></div><div><small>CONSENSUS</small><b id="consensus">—</b></div><div><small>CONFIDENCE</small><b id="confidence">—</b></div></section>
+<section class="risk"><div><small>ENTRY</small><b id="entry">—</b></div><div><small>STOP</small><b id="sl">—</b></div><div><small>TARGET</small><b id="tp">—</b></div><div><small>R:R</small><b id="rr">—</b></div></section>
+<section class="risk"><div><small>RISK</small><b id="riskLevel">—</b></div><div><small>POSITION</small><b id="positionRisk">—</b></div><div><small>PATTERN</small><b id="pattern">—</b></div><div><small>BREAKOUT</small><b id="breakout">—</b></div></section>
+<div class="meta" id="meta">Waiting for live analysis…</div><div class="actions"><button id="scan">Deep Scan</button><button id="refresh">Refresh</button></div><button class="details" id="details">Evidence / Raw Analysis</button><pre class="details-panel" id="detailsPanel" hidden></pre><div class="warning" id="warning"></div>
+</main><script src="popup.js"></script></body></html>
