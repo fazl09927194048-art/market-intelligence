@@ -3,6 +3,7 @@ import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { analyzeTechnical } from '@/lib/technical';
 import { buildSignal, buildForecast } from '@/lib/signal';
 import { enrichNews, detectEvents, type NewsItem } from '@/lib/news-intelligence';
+import { runAnalystBrain, synthesizeOpinions } from '@/lib/analyst-brain';
 
 type Story = { title:string; source:string; publishedAt:string; url:string; category:string };
 const FEEDS = [
@@ -16,18 +17,12 @@ async function loadNews():Promise<NewsItem[]>{ const rs=await Promise.allSettled
 export async function runIntelligenceCycle(symbol='BTCUSDT', interval='15m') {
   const [market, advanced, news] = await Promise.all([getMarkets(), getAdvancedMarketData(symbol, interval, 200), loadNews()]);
   const candles = advanced.futures.candles.length >= 20 ? advanced.futures.candles : advanced.spot.candles;
-  const technical = analyzeTechnical(candles, advanced.spot.orderBook);
+  const technical = analyzeTechnical(candles, advanced.spot.orderBook.bids, advanced.spot.orderBook.asks);
   const signal = buildSignal(advanced, technical);
   const forecast = buildForecast(advanced, technical, signal);
-  const events = detectEvents(news);
   const assetNews = news.filter(n => n.assets.includes(symbol.replace('USDT','')) || n.assets.length === 0);
-  return {
-    cycleId: `${symbol}-${Date.now()}`,
-    generatedAt: new Date().toISOString(), symbol, interval,
-    market, marketData: advanced, technical, signal, forecast,
-    news: assetNews.slice(0,20), events: events.filter(e => e.assets.includes(symbol.replace('USDT','')) || e.assets.length === 0).slice(0,10),
-    dataValid: market.dataValid && candles.length >= 20,
-    sourceHealth: advanced.sourceHealth,
-    warnings: [...market.warnings, ...advanced.warnings],
-  };
+  const events = detectEvents(assetNews);
+  const analysts = runAnalystBrain(advanced, technical, assetNews);
+  const consensus = synthesizeOpinions(analysts);
+  return { cycleId:`${symbol}-${Date.now()}`, generatedAt:new Date().toISOString(), symbol, interval, market, marketData:advanced, technical, signal, forecast, analysts, consensus, news:assetNews.slice(0,20), events:events.slice(0,10), dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50, sourceHealth:advanced.sourceHealth, warnings:[...market.warnings,...advanced.warnings,...technical.warnings] };
 }
