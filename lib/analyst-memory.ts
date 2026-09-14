@@ -2,163 +2,23 @@ import type { AnalystOpinion } from './analyst-brain';
 
 export type MemoryKind = 'OBSERVATION' | 'PREDICTION' | 'OUTCOME' | 'LESSON' | 'CONFLICT' | 'FACT';
 export type AnalystOutcome = 'WIN' | 'LOSS' | 'INVALIDATED' | 'OPEN';
+export type AnalystMemoryRecord = { id:string; analystId:string; kind:MemoryKind; timestamp:string; symbol:string; regime:string; summary:string; evidence:string[]; tags:string[]; confidence:number; outcome?:AnalystOutcome; returnPct?:number };
+export type AnalystProfile = { analystId:string; observations:number; evaluatedPredictions:number; wins:number; losses:number; invalidated:number; open:number; winRate:number|null; averageReturnPct:number|null; confidenceReliability:number; currentWeight:number; specialization:string[]; recentLessons:string[]; lastUpdated:string|null };
 
-export type AnalystMemoryRecord = {
-  id: string;
-  analystId: string;
-  kind: MemoryKind;
-  timestamp: string;
-  symbol: string;
-  regime: string;
-  summary: string;
-  evidence: string[];
-  tags: string[];
-  confidence: number;
-  outcome?: AnalystOutcome;
-  returnPct?: number;
-};
+const MAX_RECORDS=20000, MAX_LESSONS_PER_ANALYST=80;
+const records:AnalystMemoryRecord[]=[]; const weights=new Map<string,number>();
+const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
+function ensureWeight(id:string){if(!weights.has(id))weights.set(id,1);return weights.get(id)??1;}
+function hashId(v:string){let h=2166136261;for(let i=0;i<v.length;i++)h=Math.imul(h^v.charCodeAt(i),16777619);return `${Date.now().toString(36)}-${(h>>>0).toString(36)}`;}
 
-export type AnalystProfile = {
-  analystId: string;
-  observations: number;
-  evaluatedPredictions: number;
-  wins: number;
-  losses: number;
-  invalidated: number;
-  open: number;
-  winRate: number | null;
-  averageReturnPct: number | null;
-  confidenceReliability: number;
-  currentWeight: number;
-  specialization: string[];
-  recentLessons: string[];
-  lastUpdated: string | null;
-};
+export function remember(record:Omit<AnalystMemoryRecord,'id'|'timestamp'>){const item={...record,id:hashId(`${record.analystId}:${record.kind}:${record.summary}`),timestamp:new Date().toISOString()};records.push(item);if(records.length>MAX_RECORDS)records.splice(0,records.length-MAX_RECORDS);return item;}
+export function rememberAnalystOpinions(symbol:string,regime:string,opinions:AnalystOpinion[]){for(const o of opinions)remember({analystId:o.id,kind:'PREDICTION',symbol,regime,summary:`${o.direction} ${o.score} / ${o.confidence}%`,evidence:o.evidence.slice(0,12),tags:[o.direction,regime,o.independentMethod],confidence:o.confidence});}
+export function recordAnalystOutcome(analystId:string,symbol:string,regime:string,outcome:AnalystOutcome,returnPct:number,lesson:string){remember({analystId,kind:outcome==='OPEN'?'OBSERVATION':'OUTCOME',symbol,regime,summary:`${outcome}: ${returnPct.toFixed(4)}%`,evidence:lesson?[lesson]:[],tags:[outcome,regime],confidence:100,outcome,returnPct});if(lesson.trim())remember({analystId,kind:'LESSON',symbol,regime,summary:lesson.trim(),evidence:[],tags:[regime],confidence:100});adaptWeight(analystId);}
+function adaptWeight(id:string){const e=records.filter(r=>r.analystId===id&&r.kind==='OUTCOME'&&r.outcome!=='OPEN');if(e.length<20)return;const w=e.filter(r=>r.outcome==='WIN').length;const avg=e.reduce((s,r)=>s+(r.returnPct??0),0)/e.length;const sw=(w+10)/(e.length+20);const p=clamp((sw-.5)*2+clamp(avg/5,-1,1),-1,1);weights.set(id,Number(clamp(1+p*.45,.55,1.45).toFixed(4)));}
+export function getAnalystMemory(id:string,limit=24){return records.filter(r=>r.analystId===id).slice(-Math.max(1,Math.min(200,limit)));}
 
-const MAX_RECORDS = 20000;
-const MAX_LESSONS_PER_ANALYST = 80;
-const records: AnalystMemoryRecord[] = [];
-const weights = new Map<string, number>();
+export function retrieveRelevantMemories(id:string,query:string,symbol?:string,regime?:string,limit=12){const tokens=String(query).toLowerCase().split(/[^a-z0-9_-]+/).filter(Boolean);const now=Date.now();return records.filter(r=>r.analystId===id).map(r=>{const hay=`${r.symbol} ${r.regime} ${r.summary} ${r.evidence.join(' ')} ${r.tags.join(' ')}`.toLowerCase();const hits=tokens.reduce((n,t)=>n+(hay.includes(t)?1:0),0);const age=Math.max(0,(now-Date.parse(r.timestamp))/86400000);const recency=Math.exp(-age/30);const context=(symbol&&r.symbol===symbol?.toUpperCase()?0.8:0)+(regime&&r.regime===regime?0.8:0);return {...r,relevance:Number((hits*2+context+recency+r.confidence/1000).toFixed(4))};}).sort((a,b)=>b.relevance-a.relevance).slice(0,Math.max(1,Math.min(50,limit)));}
 
-const clamp = (x: number, a: number, b: number) => Math.max(a, Math.min(b, x));
-
-function ensureWeight(id: string) {
-  if (!weights.has(id)) weights.set(id, 1);
-  return weights.get(id) ?? 1;
-}
-
-function hashId(value: string) {
-  let h = 2166136261;
-  for (let i = 0; i < value.length; i += 1) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
-  return `${Date.now().toString(36)}-${(h >>> 0).toString(36)}`;
-}
-
-export function remember(record: Omit<AnalystMemoryRecord, 'id' | 'timestamp'>) {
-  const item: AnalystMemoryRecord = { ...record, id: hashId(`${record.analystId}:${record.kind}:${record.summary}`), timestamp: new Date().toISOString() };
-  records.push(item);
-  if (records.length > MAX_RECORDS) records.splice(0, records.length - MAX_RECORDS);
-  return item;
-}
-
-export function rememberAnalystOpinions(symbol: string, regime: string, opinions: AnalystOpinion[]) {
-  for (const opinion of opinions) {
-    remember({
-      analystId: opinion.id,
-      kind: 'PREDICTION',
-      symbol,
-      regime,
-      summary: `${opinion.direction} ${opinion.score} / ${opinion.confidence}%`,
-      evidence: opinion.evidence.slice(0, 12),
-      tags: [opinion.direction, regime, opinion.independentMethod],
-      confidence: opinion.confidence,
-    });
-  }
-}
-
-export function recordAnalystOutcome(analystId: string, symbol: string, regime: string, outcome: AnalystOutcome, returnPct: number, lesson: string) {
-  remember({
-    analystId,
-    kind: outcome === 'OPEN' ? 'OBSERVATION' : 'OUTCOME',
-    symbol,
-    regime,
-    summary: `${outcome}: ${returnPct.toFixed(4)}%`,
-    evidence: [lesson],
-    tags: [outcome, regime],
-    confidence: 100,
-    outcome,
-    returnPct,
-  });
-  if (lesson.trim()) remember({
-    analystId,
-    kind: 'LESSON',
-    symbol,
-    regime,
-    summary: lesson.trim(),
-    evidence: [],
-    tags: [regime],
-    confidence: 100,
-  });
-  adaptWeight(analystId);
-}
-
-function adaptWeight(analystId: string) {
-  const evaluated = records.filter(r => r.analystId === analystId && r.kind === 'OUTCOME' && r.outcome !== 'OPEN');
-  if (evaluated.length < 20) return;
-  const wins = evaluated.filter(r => r.outcome === 'WIN').length;
-  const avg = evaluated.reduce((s, r) => s + (r.returnPct ?? 0), 0) / evaluated.length;
-  const rawWinRate = wins / evaluated.length;
-  // Bayesian shrinkage toward 50% prevents a small lucky streak from dominating.
-  const smoothedWinRate = (wins + 10) / (evaluated.length + 20);
-  const performance = clamp((smoothedWinRate - 0.5) * 2 + clamp(avg / 5, -1, 1), -1, 1);
-  weights.set(analystId, Number(clamp(1 + performance * 0.45, 0.55, 1.45).toFixed(4)));
-  void rawWinRate;
-}
-
-export function getAnalystMemory(analystId: string, limit = 24) {
-  return records.filter(r => r.analystId === analystId).slice(-Math.max(1, Math.min(200, limit)));
-}
-
-export function getAnalystProfile(analystId: string): AnalystProfile {
-  const mine = records.filter(r => r.analystId === analystId);
-  const outcomes = mine.filter(r => r.kind === 'OUTCOME' && r.outcome);
-  const evaluated = outcomes.filter(r => r.outcome !== 'OPEN');
-  const wins = evaluated.filter(r => r.outcome === 'WIN').length;
-  const losses = evaluated.filter(r => r.outcome === 'LOSS').length;
-  const invalidated = evaluated.filter(r => r.outcome === 'INVALIDATED').length;
-  const open = outcomes.filter(r => r.outcome === 'OPEN').length;
-  const returns = evaluated.map(r => r.returnPct ?? 0);
-  const averageReturnPct = returns.length ? returns.reduce((a, b) => a + b, 0) / returns.length : null;
-  const winRate = evaluated.length ? wins / evaluated.length : null;
-  const recent = mine.filter(r => r.kind === 'LESSON').slice(-MAX_LESSONS_PER_ANALYST);
-  const confidences = mine.filter(r => r.kind === 'PREDICTION' && r.outcome !== undefined);
-  const confidenceReliability = confidences.length ? clamp(1 - Math.abs((winRate ?? 0.5) - 0.5), 0.5, 1) : 0.5;
-  const tags = new Map<string, number>();
-  for (const r of mine.slice(-500)) for (const tag of r.tags) tags.set(tag, (tags.get(tag) ?? 0) + 1);
-  const specialization = [...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([tag]) => tag);
-  return {
-    analystId,
-    observations: mine.length,
-    evaluatedPredictions: evaluated.length,
-    wins,
-    losses,
-    invalidated,
-    open,
-    winRate,
-    averageReturnPct,
-    confidenceReliability,
-    currentWeight: ensureWeight(analystId),
-    specialization,
-    recentLessons: recent.slice(-8).map(r => r.summary),
-    lastUpdated: mine.at(-1)?.timestamp ?? null,
-  };
-}
-
-export function getAllAnalystProfiles(analystIds: string[]) {
-  return analystIds.map(getAnalystProfile);
-}
-
-export function buildMemoryContext(analystId: string) {
-  const profile = getAnalystProfile(analystId);
-  const memories = getAnalystMemory(analystId, 12);
-  return { profile, memories };
-}
+export function getAnalystProfile(id:string):AnalystProfile{const mine=records.filter(r=>r.analystId===id);const outs=mine.filter(r=>r.kind==='OUTCOME'&&r.outcome);const ev=outs.filter(r=>r.outcome!=='OPEN');const wins=ev.filter(r=>r.outcome==='WIN').length;const losses=ev.filter(r=>r.outcome==='LOSS').length;const invalidated=ev.filter(r=>r.outcome==='INVALIDATED').length;const open=outs.filter(r=>r.outcome==='OPEN').length;const returns=ev.map(r=>r.returnPct??0);const winRate=ev.length?wins/ev.length:null;const averageReturnPct=returns.length?returns.reduce((a,b)=>a+b,0)/returns.length:null;const predictions=mine.filter(r=>r.kind==='PREDICTION');const confidenceReliability=predictions.length&&ev.length?clamp(1-Math.abs((winRate??.5)-.5)*1.5,.35,1):.5;const tags=new Map<string,number>();for(const r of mine.slice(-500))for(const tag of r.tags)tags.set(tag,(tags.get(tag)??0)+1);const specialization=[...tags.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([tag])=>tag);const lessons=mine.filter(r=>r.kind==='LESSON').slice(-MAX_LESSONS_PER_ANALYST);return{analystId:id,observations:mine.length,evaluatedPredictions:ev.length,wins,losses,invalidated,open,winRate,averageReturnPct,confidenceReliability,currentWeight:ensureWeight(id),specialization,recentLessons:lessons.slice(-8).map(r=>r.summary),lastUpdated:mine.at(-1)?.timestamp??null};}
+export function getAllAnalystProfiles(ids:string[]){return ids.map(getAnalystProfile);}
+export function buildMemoryContext(id:string,query='',symbol?:string,regime?:string){return{profile:getAnalystProfile(id),memories:query?retrieveRelevantMemories(id,query,symbol,regime,12):getAnalystMemory(id,12)};}
