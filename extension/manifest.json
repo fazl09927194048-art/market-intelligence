@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Market/Intel — AI Market Overlay",
-  "version": "0.4.1",
-  "description": "Live market intelligence overlay for supported chart pages with resilient symbol/price detection, data-quality diagnostics, and evidence-based AI analysis.",
+  "version": "0.5.0",
+  "description": "Live market intelligence overlay and compact AI market cockpit for supported chart pages.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://*.binance.com/*",
@@ -11,7 +11,7 @@
     "https://market-intelligence-840b.onrender.com/*"
   ],
   "background": {"service_worker": "background.js", "type": "module"},
-  "action": {"default_title": "Market/Intel"},
+  "action": {"default_title": "Market/Intel", "default_popup": "popup.html"},
   "content_scripts": [{
     "matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"],
     "js": ["stream.js", "content.js"],
