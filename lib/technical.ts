@@ -36,8 +36,8 @@ export function analyzeTechnical(candles:Candle[], bids:OrderBookLevel[], asks:O
   const vwapDen=c.reduce((s,x)=>s+x.volume,0); const vwap=vwapDen>0?c.reduce((s,x)=>s+((x.high+x.low+x.close)/3)*x.volume,0)/vwapDen:null;
   const atr14=atr(c,14), atrPercent=pct(atr14,last), rets=returns(p.slice(-100)); const realized=rets.length?Math.sqrt(mean(rets.map(x=>x*x))!)*Math.sqrt(365)*100:null;
   const recent=c.slice(-10), highs=recent.map(x=>x.high), lows=recent.map(x=>x.low); const support=lows.length?Math.min(...lows):null, resistance=highs.length?Math.max(...highs):null;
-  const half=Math.max(2,Math.floor(recent.length/2)); const h1=recent.slice(0,half), h2=recent.slice(half); const higherHighs=h2.length&&Math.max(...h2.map(x=>x.high))>Math.max(...h1.map(x=>x.high)); const higherLows=h2.length&&Math.min(...h2.map(x=>x.low))>Math.min(...h1.map(x=>x.low));
-  const trend=finite(ema20)&&finite(ema50)?ema20>ema50&&Boolean(higherLows)?'UP':ema20<ema50&&!higherHighs?'DOWN':'SIDEWAYS':'UNKNOWN';
+  const half=Math.max(2,Math.floor(recent.length/2)); const h1=recent.slice(0,half), h2=recent.slice(half); const higherHighs=Boolean(h2.length&&Math.max(...h2.map(x=>x.high))>Math.max(...h1.map(x=>x.high))); const higherLows=Boolean(h2.length&&Math.min(...h2.map(x=>x.low))>Math.min(...h1.map(x=>x.low)));
+  const trend=finite(ema20)&&finite(ema50)?ema20>ema50&&higherLows?'UP':ema20<ema50&&!higherHighs?'DOWN':'SIDEWAYS':'UNKNOWN';
   const bidNotional=bids.reduce((s,x)=>s+x.price*x.quantity,0), askNotional=asks.reduce((s,x)=>s+x.price*x.quantity,0), total=bidNotional+askNotional, imbalance=total? (bidNotional-askNotional)/total:null;
   const bestBid=bids.length?Math.max(...bids.map(x=>x.price)):null, bestAsk=asks.length?Math.min(...asks.map(x=>x.price)):null, spreadPercent=finite(bestBid)&&finite(bestAsk)&&bestBid>0?(bestAsk-bestBid)/bestBid*100:null;
   const volRegime=atrPercent===null?'UNKNOWN':atrPercent>3?'HIGH':atrPercent<0.7?'LOW':'NORMAL';
