@@ -2,8 +2,9 @@ import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
 import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
+import { buildMemoryContext, getAnalystProfile, rememberAnalystOpinions } from './analyst-memory';
 
-export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string };
+export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
 
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 const dir=(s:number):AnalystOpinion['direction']=>s>=25?'LONG':s<=-25?'SHORT':'NEUTRAL';
@@ -14,7 +15,9 @@ export function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, ne
   const last=candles.at(-1), prev=candles.at(-2); const volRatio=last&&prev&&prev.volume>0?last.volume/prev.volume:1;
   const newsScore=news.reduce((s,n)=>s+(n.sentiment==='BULLISH'?1:n.sentiment==='BEARISH'?-1:0)*(n.impact==='BREAKING'?3:n.impact==='HIGH'?2:1)*n.credibility,0);
   const base=(ema20!==null&&ema50!==null?(ema20>ema50?18:-18):0)+(macd!==null&&ms!==null?(macd>ms?12:-12):0);
-  return ANALYSTS.map(a=>{
+  const regime=t.structure.trend;
+  const opinions=ANALYSTS.map(a=>{
+    const memory=buildMemoryContext(a.id);
     let s=0, evidence:string[]=[], conflicts:string[]=[], method='independent rule set';
     switch(a.id){
       case 'trend': s=t.structure.trend==='UP'?65:t.structure.trend==='DOWN'?-65:0; method='multi-factor trend regime'; break;
@@ -51,12 +54,20 @@ export function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, ne
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
+    const rawScore=s;
+    // Experience changes influence, never raw evidence. This prevents memory from inventing market facts.
+    const memoryWeight=memory.profile.currentWeight;
+    s=rawScore*memoryWeight;
+    if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${memoryWeight.toFixed(3)}.`);
+    if (memory.profile.recentLessons.length) evidence.push(`Relevant lessons retained: ${memory.profile.recentLessons.slice(-3).join(' | ')}`);
     if(t.volatility.regime==='HIGH'&&Math.abs(s)>30) conflicts.push('High volatility reduces confidence.');
     if(news.some(n=>n.impact==='BREAKING')) conflicts.push('Breaking news can invalidate technical assumptions.');
     evidence.push(method);
     const confidence=clamp(Math.round(45+Math.abs(s)*0.55+(t.confidence-75)*0.25-conflicts.length*5),0,96);
-    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method};
+    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Memory weight ${memoryWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:memoryWeight,recentLessons:memory.profile.recentLessons}};
   });
+  rememberAnalystOpinions(data.symbol, regime, opinions);
+  return opinions;
 }
 
 export function synthesizeOpinions(opinions:AnalystOpinion[]){
