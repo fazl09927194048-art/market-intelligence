@@ -10,14 +10,15 @@ export async function GET(request: NextRequest) {
     const interval = normalizeInterval(q.get('interval'));
     const pagePriceRaw = Number(q.get('pagePrice'));
     const pagePrice = Number.isFinite(pagePriceRaw) && pagePriceRaw > 0 ? pagePriceRaw : null;
-    const extraction = q.get('extraction');
-    const chartContext = pagePrice !== null || extraction ? {
+    const extractionRaw = q.get('extraction');
+    const extraction: 'dom' | 'url' | 'none' = extractionRaw === 'dom' || extractionRaw === 'url' ? extractionRaw : 'none';
+    const chartContext = pagePrice !== null || extractionRaw ? {
       source: 'browser' as const,
       symbol,
       interval,
       pagePrice,
       observedAt: q.get('observedAt') ?? new Date().toISOString(),
-      extraction: extraction === 'dom' || extraction === 'url' ? extraction : 'none' as const,
+      extraction,
     } : null;
     const result = await runIntelligenceCycle(symbol, interval, chartContext);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
