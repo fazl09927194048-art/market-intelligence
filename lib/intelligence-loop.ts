@@ -22,7 +22,7 @@ export async function runIntelligenceCycle(symbol='BTCUSDT', interval='15m') {
   const forecast = buildForecast(advanced, technical, signal);
   const assetNews = news.filter(n => n.assets.includes(symbol.replace('USDT','')) || n.assets.length === 0);
   const events = detectEvents(assetNews);
-  const analysts = runAnalystBrain(advanced, technical, assetNews);
+  const analysts = await runAnalystBrain(advanced, technical, assetNews);
   const consensus = synthesizeOpinions(analysts);
   return { cycleId:`${symbol}-${Date.now()}`, generatedAt:new Date().toISOString(), symbol, interval, market, marketData:advanced, technical, signal, forecast, analysts, consensus, news:assetNews.slice(0,20), events:events.slice(0,10), dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50, sourceHealth:advanced.sourceHealth, warnings:[...market.warnings,...advanced.warnings,...technical.warnings] };
 }
