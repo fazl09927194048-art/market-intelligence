@@ -7,5 +7,5 @@ export const dynamic='force-dynamic';
 export async function GET(){
   const market=await getMarkets();
   const intelligence=analyzeMarket(market.markets);
-  return NextResponse.json({intelligence,marketProvider:market.provider,warnings:market.warnings,updatedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store'}});
+  return NextResponse.json({intelligence,marketProvider:market.provider,warnings:market.warnings,updatedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET'}});
 }
