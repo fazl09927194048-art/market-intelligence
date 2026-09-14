@@ -23,7 +23,7 @@ const copy = {
   es: { nav:['Noticias','Mercados','Señales','Lista'], eyebrow:'Inteligencia de mercados globales', hero:'Mira el mercado.', em:'Antes de que se mueva.', desc:'Precios cripto y noticias globales en un panel rápido y oscuro.', live:'DATOS EN VIVO', sync:'SINCRONIZANDO…', refresh:'↻ Actualizar', feed:'FLUJO DE INTELIGENCIA', breaking:'Noticias importantes y de última hora', search:'Buscar noticias…', latest:'Última inteligencia', pulse:'Pulso del mercado', watch:'Lista de seguimiento', stories:'historias', updated:'Actualizado', sources:'Fuentes públicas · agregación en servidor', ready:'Las alertas personalizadas llegarán con la próxima capa de cuenta.', footer:'Cripto + Mercados · Los datos pueden retrasarse · No es asesoramiento financiero' },
 };
 
-function detectLanguage(): Exclude<Lang,'auto'> { const l = navigator.language.toLowerCase(); if (l.startsWith('fa')) return 'fa'; if (l.startsWith('de')) return 'de'; if (l.startsWith('ar')) return 'ar'; if (l.startsWith('tr')) return 'tr'; if (l.startsWith('es')) return 'es'; return 'en'; }
+function detectLanguage(): Exclude<Lang,'auto'> { if (typeof navigator === 'undefined') return 'en'; const l = navigator.language.toLowerCase(); if (l.startsWith('fa')) return 'fa'; if (l.startsWith('de')) return 'de'; if (l.startsWith('ar')) return 'ar'; if (l.startsWith('tr')) return 'tr'; if (l.startsWith('es')) return 'es'; return 'en'; }
 function money(value:number){ if(!value)return '—'; return new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',maximumFractionDigits:value>100?0:2}).format(value); }
 function ago(iso:string){ const mins=Math.max(0,Math.round((Date.now()-new Date(iso).getTime())/60000)); return mins<1?'now':mins<60?`${mins}m ago`:`${Math.round(mins/60)}h ago`; }
 
