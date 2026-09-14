@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Market/Intel — AI Market Overlay",
-  "version": "0.2.0",
-  "description": "Read supported chart pages and show live Market/Intel intelligence without trading or order permissions.",
+  "version": "0.3.0",
+  "description": "Live market intelligence overlay for supported chart pages. No trading, order, withdrawal, or transfer permissions.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://*.binance.com/*",
     "https://*.kucoin.com/*",
-    "https://*.tradingview.com/*"
+    "https://*.tradingview.com/*",
+    "https://market-intelligence-840b.onrender.com/*"
   ],
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_title": "Market/Intel"},
