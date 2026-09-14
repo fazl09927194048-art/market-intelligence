@@ -3,9 +3,18 @@ import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { normalizeInterval } from '@/lib/chart-context';
 
 export const dynamic = 'force-dynamic';
+
+function corsHeaders(request:NextRequest){
+  const origin=request.headers.get('origin');
+  const configured=(process.env.ALLOWED_ORIGINS||'').split(',').map(v=>v.trim()).filter(Boolean);
+  const allowed=origin&&configured.includes(origin)?origin:null;
+  return allowed?{'Access-Control-Allow-Origin':allowed,'Vary':'Origin'}:{};
+}
+
 export async function GET(request: NextRequest) {
-  const q = new URL(request.url).searchParams;
+  const cors=corsHeaders(request);
   try {
+    const q = new URL(request.url).searchParams;
     const symbol = q.get('symbol') ?? 'BTCUSDT';
     const interval = normalizeInterval(q.get('interval'));
     const pagePriceRaw = Number(q.get('pagePrice'));
@@ -21,8 +30,8 @@ export async function GET(request: NextRequest) {
       extraction,
     } : null;
     const result = await runIntelligenceCycle(symbol, interval, chartContext);
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store', ...cors } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Intelligence cycle failed', dataValid:false }, { status: 503, headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Intelligence cycle failed', dataValid:false }, { status: 503, headers: { 'Cache-Control': 'no-store', ...cors } });
   }
 }
