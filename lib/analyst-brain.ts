@@ -2,14 +2,14 @@ import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
 import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
-import { buildMemoryContext, getAnalystProfile, rememberAnalystOpinions } from './analyst-memory';
+import { buildMemoryContext, getAnalystProfile, initializePersistentMemory, rememberAnalystOpinions } from './analyst-memory';
 
 export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
-
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 const dir=(s:number):AnalystOpinion['direction']=>s>=25?'LONG':s<=-25?'SHORT':'NEUTRAL';
 
-export function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[]):AnalystOpinion[]{
+export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[]):Promise<AnalystOpinion[]>{
+  await initializePersistentMemory();
   const r=t.indicators.rsi14??50, ema20=t.indicators.ema20, ema50=t.indicators.ema50, macd=t.indicators.macd, ms=t.indicators.macdSignal;
   const imb=t.liquidity.imbalance??0, funding=data.futures.fundingRate??0, candles=data.futures.candles.length?data.futures.candles:data.spot.candles;
   const last=candles.at(-1), prev=candles.at(-2); const volRatio=last&&prev&&prev.volume>0?last.volume/prev.volume:1;
@@ -17,7 +17,7 @@ export function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, ne
   const base=(ema20!==null&&ema50!==null?(ema20>ema50?18:-18):0)+(macd!==null&&ms!==null?(macd>ms?12:-12):0);
   const regime=t.structure.trend;
   const opinions=ANALYSTS.map(a=>{
-    const memory=buildMemoryContext(a.id);
+    const memory=buildMemoryContext(a.id,`${data.symbol} ${regime} ${a.specialty}`,data.symbol,regime);
     let s=0, evidence:string[]=[], conflicts:string[]=[], method='independent rule set';
     switch(a.id){
       case 'trend': s=t.structure.trend==='UP'?65:t.structure.trend==='DOWN'?-65:0; method='multi-factor trend regime'; break;
@@ -54,11 +54,10 @@ export function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, ne
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
-    const rawScore=s;
-    // Experience changes influence, never raw evidence. This prevents memory from inventing market facts.
-    const memoryWeight=memory.profile.currentWeight;
+    const rawScore=s, memoryWeight=memory.profile.currentWeight;
     s=rawScore*memoryWeight;
     if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${memoryWeight.toFixed(3)}.`);
+    if (memory.memories.length) evidence.push(`Retrieved ${memory.memories.length} relevant memory records for ${data.symbol}.`);
     if (memory.profile.recentLessons.length) evidence.push(`Relevant lessons retained: ${memory.profile.recentLessons.slice(-3).join(' | ')}`);
     if(t.volatility.regime==='HIGH'&&Math.abs(s)>30) conflicts.push('High volatility reduces confidence.');
     if(news.some(n=>n.impact==='BREAKING')) conflicts.push('Breaking news can invalidate technical assumptions.');
