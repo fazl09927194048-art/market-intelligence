@@ -1,0 +1,16 @@
+{
+  "name": "Market Intelligence",
+  "short_name": "Market Intel",
+  "description": "Global crypto and market intelligence dashboard.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#06080c",
+  "theme_color": "#06080c",
+  "lang": "en",
+  "categories": ["finance", "news"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
