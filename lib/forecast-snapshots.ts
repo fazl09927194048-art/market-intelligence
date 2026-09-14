@@ -1,6 +1,6 @@
 import { getAdvancedMarketData } from './market-advanced';
 import { evaluateForecast, type ForecastEvaluation } from './forecast-evaluation';
-import { persistForecastSnapshot, getDueForecastSnapshots } from './persistent-memory';
+import { persistForecastSnapshot, getDueForecastSnapshots, releaseForecastClaim } from './persistent-memory';
 
 export type ForecastSnapshot = {
   id: string;
@@ -27,9 +27,13 @@ export async function evaluateDueForecasts(limit = 50): Promise<ForecastEvaluati
     try {
       const data = await getAdvancedMarketData(snapshot.symbol, snapshot.interval, 50);
       const price = data.futures.price ?? data.spot.price;
-      if (price === null || !Number.isFinite(price) || price <= 0) continue;
+      if (price === null || !Number.isFinite(price) || price <= 0) {
+        await releaseForecastClaim(snapshot.id);
+        continue;
+      }
       results.push(evaluateForecast({ ...snapshot, endPrice: price }));
     } catch {
+      await releaseForecastClaim(snapshot.id);
       // One unavailable symbol/source must not block the remaining batch.
     }
   }
