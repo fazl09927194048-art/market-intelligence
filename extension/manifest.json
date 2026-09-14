@@ -1,12 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Market/Intel — AI Market Overlay",
-  "version": "0.1.0",
-  "description": "Read supported chart pages and show Market/Intel intelligence without trading or order permissions.",
+  "version": "0.2.0",
+  "description": "Read supported chart pages and show live Market/Intel intelligence without trading or order permissions.",
   "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"],
+  "host_permissions": [
+    "https://*.binance.com/*",
+    "https://*.kucoin.com/*",
+    "https://*.tradingview.com/*",
+    "wss://*.binance.com/*"
+  ],
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_title": "Market/Intel"},
-  "content_scripts": [{"matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"], "js": ["content.js"], "run_at": "document_idle"}],
+  "content_scripts": [{
+    "matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"],
+    "js": ["stream.js", "content.js"],
+    "run_at": "document_idle"
+  }],
   "icons": {"128": "icon.svg"}
 }
