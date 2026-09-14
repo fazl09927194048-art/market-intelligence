@@ -42,6 +42,7 @@ export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chart
   const warnings=[...market.warnings,...advanced.warnings,...technical.warnings];
   if(newsImpact.level==='BREAKING')warnings.push(`Breaking news detected: ${newsImpact.breakingCount} high-priority event(s); revalidate directional risk before acting.`);
   if(newsImpact.latestAgeMs!==null&&newsImpact.latestAgeMs>6*60*60*1000)warnings.push('News feed is older than 6 hours; news-derived context may be stale.');
-  if(chart?.pagePrice!==null&&Date.now()-Date.parse(chart.observedAt)>2*60*1000)warnings.push('Browser chart context is older than 2 minutes.');
+  if(chart?.quality==='partial')warnings.push('Browser chart context is partial: page price was observed but could not be fully verified.');
+  if(chart?.quality==='verified'&&chart.ageMs>120000)warnings.push('Browser chart context is older than 2 minutes.');
   return { cycleId:`${safeSymbol}-${Date.now()}`, generatedAt:new Date().toISOString(), symbol:safeSymbol, interval:safeInterval, chartContext:chart, market, marketData:advanced, technical, signal, forecast, analysts, consensus, news:assetNews.slice(0,20), events:events.slice(0,10), newsImpact, dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50, sourceHealth:advanced.sourceHealth, warnings };
 }
