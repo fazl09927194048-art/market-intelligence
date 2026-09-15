@@ -1,49 +1,34 @@
 'use client';
 import {useEffect} from 'react';
 
-const KEY='dro-floating-position-v1';
+const KEY='dro-behavior-v2';
+type Settings={left:number;top:number;opacity:number;scale:number;snap:boolean;locked:boolean};
+const defaults:Settings={left:0,top:0,opacity:1,scale:1,snap:true,locked:false};
+function read():Settings{try{const raw=JSON.parse(localStorage.getItem(KEY)||'null');if(!raw)return defaults;return {...defaults,...raw,opacity:Math.min(1,Math.max(.45,Number(raw.opacity)||1)),scale:Math.min(1.35,Math.max(.75,Number(raw.scale)||1)),snap:raw.snap!==false,locked:raw.locked===true};}catch{return defaults}}
+function save(s:Settings){try{localStorage.setItem(KEY,JSON.stringify(s))}catch{}}
 
 export default function DROBehavior(){
-  useEffect(()=>{
-    const root=document.querySelector<HTMLElement>('.droSite');
-    const orb=root?.querySelector<HTMLElement>('.droOrb');
-    if(!root||!orb)return;
-    let dragging=false,startX=0,startY=0,startLeft=0,startTop=0,pointerId:number|null=null;
-    const saved=(()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch{return null}})();
-    if(saved&&Number.isFinite(saved.left)&&Number.isFinite(saved.top)){
-      root.style.left=`${Math.max(8,Math.min(window.innerWidth-root.offsetWidth-8,saved.left))}px`;
-      root.style.top=`${Math.max(8,Math.min(window.innerHeight-root.offsetHeight-8,saved.top))}px`;
-      root.style.right='auto';root.style.bottom='auto';
-    }
-    const move=(e:PointerEvent)=>{
-      if(!dragging)return;
-      const left=Math.max(8,Math.min(window.innerWidth-root.offsetWidth-8,startLeft+e.clientX-startX));
-      const top=Math.max(8,Math.min(window.innerHeight-root.offsetHeight-8,startTop+e.clientY-startY));
-      root.style.left=`${left}px`;root.style.top=`${top}px`;root.style.right='auto';root.style.bottom='auto';
-    };
-    const end=()=>{
-      if(!dragging)return;
-      dragging=false;
-      if(pointerId!==null){try{orb.releasePointerCapture(pointerId)}catch{}pointerId=null;}
-      const left=parseFloat(root.style.left),top=parseFloat(root.style.top);
-      const dockLeft=left<window.innerWidth/2;
-      const snapLeft=dockLeft?8:Math.max(8,window.innerWidth-root.offsetWidth-8);
-      const snapTop=Math.max(8,Math.min(top,window.innerHeight-root.offsetHeight-8));
-      root.style.left=`${snapLeft}px`;root.style.top=`${snapTop}px`;
-      try{localStorage.setItem(KEY,JSON.stringify({left:snapLeft,top:snapTop}))}catch{}
-    };
-    const down=(e:PointerEvent)=>{
-      if(e.button!==0)return;
-      const target=e.target as HTMLElement;
-      if(target.closest('.droPanel'))return;
-      dragging=true;pointerId=e.pointerId;startX=e.clientX;startY=e.clientY;
-      const r=root.getBoundingClientRect();startLeft=r.left;startTop=r.top;
-      try{orb.setPointerCapture(e.pointerId)}catch{}e.preventDefault();
-    };
-    orb.addEventListener('pointerdown',down);window.addEventListener('pointermove',move);window.addEventListener('pointerup',end);window.addEventListener('pointercancel',end);
-    const resize=()=>{if(root.style.left){const r=root.getBoundingClientRect();root.style.left=`${Math.max(8,Math.min(window.innerWidth-r.width-8,r.left))}px`;root.style.top=`${Math.max(8,Math.min(window.innerHeight-r.height-8,r.top))}px`}};
-    window.addEventListener('resize',resize);
-    return()=>{orb.removeEventListener('pointerdown',down);window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);window.removeEventListener('pointercancel',end);window.removeEventListener('resize',resize)};
-  },[]);
-  return null;
+ useEffect(()=>{
+  const root=document.querySelector<HTMLElement>('.droSite');const orb=root?.querySelector<HTMLElement>('.droOrb');if(!root||!orb)return;
+  let settings=read();let dragging=false,moved=false,startX=0,startY=0,startLeft=0,startTop=0,pointerId:number|null=null;
+  const apply=()=>{root.style.opacity=String(settings.opacity);root.style.transform=`scale(${settings.scale})`;root.style.transformOrigin='bottom right';if(settings.left||settings.top){root.style.left=`${settings.left}px`;root.style.top=`${settings.top}px`;root.style.right='auto';root.style.bottom='auto'}orb.style.cursor=settings.locked?'pointer':'grab';root.setAttribute('data-dro-locked',String(settings.locked))};
+  const clamp=()=>{const r=root.getBoundingClientRect();return {left:Math.max(8,Math.min(window.innerWidth-r.width-8,r.left)),top:Math.max(8,Math.min(window.innerHeight-r.height-8,r.top))}};
+  const positionDefault=()=>{const r=root.getBoundingClientRect();settings.left=Math.max(8,window.innerWidth-r.width-22);settings.top=Math.max(8,window.innerHeight-r.height-22);root.style.left=`${settings.left}px`;root.style.top=`${settings.top}px`;root.style.right='auto';root.style.bottom='auto'};
+  if(!settings.left&&!settings.top)positionDefault();else apply();
+  const move=(e:PointerEvent)=>{if(!dragging||settings.locked)return;if(Math.abs(e.clientX-startX)>3||Math.abs(e.clientY-startY)>3)moved=true;const left=Math.max(8,Math.min(window.innerWidth-root.offsetWidth-8,startLeft+e.clientX-startX));const top=Math.max(8,Math.min(window.innerHeight-root.offsetHeight-8,startTop+e.clientY-startY));root.style.left=`${left}px`;root.style.top=`${top}px`;root.style.right='auto';root.style.bottom='auto'};
+  const end=()=>{if(!dragging)return;dragging=false;if(pointerId!==null){try{orb.releasePointerCapture(pointerId)}catch{}pointerId=null}if(!moved)return;const r=root.getBoundingClientRect();let left=Math.max(8,Math.min(window.innerWidth-r.width-8,r.left));let top=Math.max(8,Math.min(window.innerHeight-r.height-8,r.top));if(settings.snap)left=left<window.innerWidth/2?8:Math.max(8,window.innerWidth-r.width-8);settings.left=left;settings.top=top;save(settings);apply();moved=false};
+  const down=(e:PointerEvent)=>{if(e.button!==0||settings.locked)return;const target=e.target as HTMLElement;if(target.closest('.droPanel')||target.closest('[data-dro-settings]'))return;dragging=true;moved=false;pointerId=e.pointerId;startX=e.clientX;startY=e.clientY;const r=root.getBoundingClientRect();startLeft=r.left;startTop=r.top;try{orb.setPointerCapture(e.pointerId)}catch{}};
+  const resize=()=>{const p=clamp();root.style.left=`${p.left}px`;root.style.top=`${p.top}px`;root.style.right='auto';root.style.bottom='auto';settings.left=p.left;settings.top=p.top;save(settings)};
+  orb.addEventListener('pointerdown',down);window.addEventListener('pointermove',move);window.addEventListener('pointerup',end);window.addEventListener('pointercancel',end);window.addEventListener('resize',resize);
+
+  const panel=document.createElement('div');panel.setAttribute('data-dro-settings','true');panel.innerHTML=`<div class="droSettingsTitle">DRO SETTINGS</div><label>Opacity <output>${Math.round(settings.opacity*100)}%</output><input data-opacity type="range" min="45" max="100" value="${Math.round(settings.opacity*100)}"></label><label>Size <output>${Math.round(settings.scale*100)}%</output><input data-scale type="range" min="75" max="135" value="${Math.round(settings.scale*100)}"></label><label class="droToggle"><span>Snap to edge</span><input data-snap type="checkbox" ${settings.snap?'checked':''}></label><label class="droToggle"><span>Lock position</span><input data-lock type="checkbox" ${settings.locked?'checked':''}></label><button data-reset>RESET POSITION</button>`;
+  const style=document.createElement('style');style.textContent=`[data-dro-settings]{position:fixed;right:88px;bottom:22px;width:210px;padding:12px;border:1px solid #294634;border-radius:14px;background:rgba(7,14,10,.96);color:#cfe5d5;box-shadow:0 20px 60px rgba(0,0,0,.55);backdrop-filter:blur(18px);z-index:2147483001;font:11px Inter,system-ui,sans-serif;display:none}[data-dro-settings].open{display:block}[data-dro-settings] .droSettingsTitle{font-weight:900;letter-spacing:.1em;margin-bottom:10px;color:#a8f4ba}[data-dro-settings] label{display:block;margin:9px 0}[data-dro-settings] output{float:right;color:#78d892}[data-dro-settings] input[type=range]{width:100%;accent-color:#55c878}[data-dro-settings] .droToggle{display:flex;justify-content:space-between;align-items:center}[data-dro-settings] .droToggle input{accent-color:#55c878}[data-dro-settings] button{width:100%;margin-top:6px;padding:7px;border-radius:8px;border:1px solid #315b3e;background:#102117;color:#a8f4ba;font-size:9px;font-weight:800}@media(max-width:620px){[data-dro-settings]{right:12px;bottom:76px;width:190px}}`;document.head.appendChild(style);document.body.appendChild(panel);
+  const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.textContent='⚙';settingsButton.title='DRO settings';settingsButton.setAttribute('aria-label','DRO settings');settingsButton.style.cssText='position:fixed;right:18px;bottom:88px;z-index:2147483001;width:30px;height:30px;border-radius:50%;border:1px solid #294634;background:#0b1510;color:#9eeeb0;cursor:pointer;display:none;';document.body.appendChild(settingsButton);
+  const sync=()=>{const o=panel.querySelector('[data-opacity]')?.parentElement?.querySelector('output');if(o)o.textContent=`${Math.round(settings.opacity*100)}%`;const so=panel.querySelector('[data-scale]')?.parentElement?.querySelector('output');if(so)so.textContent=`${Math.round(settings.scale*100)}%`};
+  const opacity=panel.querySelector<HTMLInputElement>('[data-opacity]');const scale=panel.querySelector<HTMLInputElement>('[data-scale]');const snap=panel.querySelector<HTMLInputElement>('[data-snap]');const lock=panel.querySelector<HTMLInputElement>('[data-lock]');const reset=panel.querySelector<HTMLButtonElement>('[data-reset]');
+  const onOpacity=()=>{settings.opacity=Number(opacity?.value||100)/100;save(settings);apply();sync()};const onScale=()=>{settings.scale=Number(scale?.value||100)/100;save(settings);apply();resize();sync()};const onSnap=()=>{settings.snap=Boolean(snap?.checked);save(settings)};const onLock=()=>{settings.locked=Boolean(lock?.checked);save(settings);apply()};const onReset=()=>{settings.left=0;settings.top=0;settings.scale=1;settings.opacity=1;save(settings);positionDefault();apply();if(opacity)opacity.value='100';if(scale)scale.value='100';sync()};
+  opacity?.addEventListener('input',onOpacity);scale?.addEventListener('input',onScale);snap?.addEventListener('change',onSnap);lock?.addEventListener('change',onLock);reset?.addEventListener('click',onReset);
+  const observer=new MutationObserver(()=>{const visible=Boolean(root.querySelector('.droPanel'));settingsButton.style.display=visible?'block':'none';if(!visible)panel.classList.remove('open')});observer.observe(root,{childList:true,subtree:true});settingsButton.addEventListener('click',()=>panel.classList.toggle('open'));const keydown=(e:KeyboardEvent)=>{if(e.key==='Escape')panel.classList.remove('open')};window.addEventListener('keydown',keydown);
+  return()=>{observer.disconnect();orb.removeEventListener('pointerdown',down);window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);window.removeEventListener('pointercancel',end);window.removeEventListener('resize',resize);window.removeEventListener('keydown',keydown);opacity?.removeEventListener('input',onOpacity);scale?.removeEventListener('input',onScale);snap?.removeEventListener('change',onSnap);lock?.removeEventListener('change',onLock);reset?.removeEventListener('click',onReset);settingsButton.remove();panel.remove();style.remove()};
+ },[]);return null;
 }
