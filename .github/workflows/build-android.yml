@@ -1,4 +1,4 @@
-name: Build xXx DRO APK
+name: Build xXx DRO Android
 
 on:
   push:
@@ -45,36 +45,44 @@ jobs:
           test -f android/app/src/main/AndroidManifest.xml
           find android/app/src/main -maxdepth 6 -type f | sort
 
-      - name: Build debug APK
+      - name: Build debug APK and AAB
         working-directory: android
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: gradle --no-daemon --stacktrace assembleDebug bundleDebug
 
-      - name: Prepare stable APK filename
+      - name: Prepare stable Android artifacts
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/app/build/outputs/bundle/debug/app-debug.aab
           cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/xXx-DRO.apk
-          ls -lh android/app/build/outputs/apk/debug/xXx-DRO.apk
+          cp android/app/build/outputs/bundle/debug/app-debug.aab android/app/build/outputs/bundle/debug/xXx-DRO.aab
+          ls -lh android/app/build/outputs/apk/debug/xXx-DRO.apk android/app/build/outputs/bundle/debug/xXx-DRO.aab
 
-      - name: Upload APK artifact
+      - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: xXx-DRO-Android
-          path: android/app/build/outputs/apk/debug/xXx-DRO.apk
+          path: |
+            android/app/build/outputs/apk/debug/xXx-DRO.apk
+            android/app/build/outputs/bundle/debug/xXx-DRO.aab
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish APK release
+      - name: Publish Android release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: xXx-DRO-latest
           name: xXx DRO Latest
           body: |
-            Latest installable xXx DRO Android APK.
+            Latest xXx DRO Android debug artifacts.
             Package: com.xxx.superapp
             Target Android: 15 (API 35)
+            APK: debug build for direct testing.
+            AAB: debug bundle for integration/testing; Play Store production publishing still requires a signing key and release configuration.
           prerelease: false
           make_latest: true
-          files: android/app/build/outputs/apk/debug/xXx-DRO.apk
+          files: |
+            android/app/build/outputs/apk/debug/xXx-DRO.apk
+            android/app/build/outputs/bundle/debug/xXx-DRO.aab
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
