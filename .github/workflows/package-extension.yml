@@ -1,4 +1,4 @@
-name: Package browser extension
+name: Package DRO browser extension
 on:
   push:
     branches: [main]
@@ -8,13 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package extension
+      - name: Package DRO extension
         run: |
           mkdir -p dist
           cd extension
-          zip -r ../dist/market-intel-extension.zip . -x '*.DS_Store'
-      - name: Upload extension artifact
+          zip -r ../dist/dro-extension.zip . -x '*.DS_Store'
+      - name: Upload DRO extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: market-intel-extension
-          path: dist/market-intel-extension.zip
+          name: dro-extension
+          path: dist/dro-extension.zip
