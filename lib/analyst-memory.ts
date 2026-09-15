@@ -17,7 +17,7 @@ async function persist(item:AnalystMemoryRecord){try{const m=await import('./per
 export async function initializePersistentMemory(){
   if(hydrated)return;
   if(hydrationPromise)return hydrationPromise;
-  hydrationPromise=(async()=>{try{const m=await import('./persistent-memory');const loaded=await m.hydrateAnalystMemory(MAX_RECORDS);if(loaded.length){records.splice(0,records.length,...loaded.slice(-MAX_RECORDS));for(const r of records)ensureWeight(r.analystId);} }catch{/* no database configured or temporarily unavailable */}finally{hydrated=true;}})();
+  hydrationPromise=(async()=>{try{const m=await import('./persistent-memory');const [loaded,profiles]=await Promise.all([m.hydrateAnalystMemory(MAX_RECORDS),m.hydrateAnalystProfiles()]);if(loaded.length)records.splice(0,records.length,...loaded.slice(-MAX_RECORDS));for(const r of records)ensureWeight(r.analystId);for(const profile of profiles){if(Number.isFinite(profile.currentWeight))weights.set(profile.analystId,clamp(profile.currentWeight,.55,1.45));}}catch{/* no database configured or temporarily unavailable */}finally{hydrated=true;}})();
   return hydrationPromise;
 }
 
