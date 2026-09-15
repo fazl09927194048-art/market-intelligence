@@ -3,6 +3,8 @@ import { ANALYSTS } from './analysts';
 
 export type OrchestrationStage = 'TASK_ANALYSIS' | 'SPECIALIST_ROUTING' | 'SPECIALIST_ANALYSIS' | 'CROSS_REVIEW' | 'VALIDATION' | 'FINAL';
 
+type Consensus = { direction: string; confidence: number; score: number; agreement: number; dissent?: Array<unknown> };
+
 export type OrchestrationResult = {
   stages: Array<{name: OrchestrationStage; status: 'complete' | 'blocked'; detail: string}>;
   task: {symbol: string; interval: string; objective: string};
@@ -14,7 +16,7 @@ export type OrchestrationResult = {
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
 
-export function orchestrateAnalysts(symbol: string, interval: string, opinions: AnalystOpinion[], consensus: {direction: string; confidence: number; score: number; agreement: number}): OrchestrationResult {
+export function orchestrateAnalysts(symbol: string, interval: string, opinions: AnalystOpinion[], consensus: Consensus): OrchestrationResult {
   const usable = opinions.filter(x => x.id !== 'critic' && x.id !== 'verifier');
   const contradictions = opinions
     .flatMap(x => x.conflicts.map(conflict => `${x.id}: ${conflict}`))
