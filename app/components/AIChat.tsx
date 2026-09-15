@@ -5,12 +5,13 @@ type Props={symbol:string;interval:string;context:unknown;fa?:boolean};
 export default function AIChat({symbol,interval,context,fa=false}:Props){
  const [open,setOpen]=useState(false); const [input,setInput]=useState(''); const [answer,setAnswer]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState('');
  const send=async()=>{const message=input.trim();if(!message||busy)return;setBusy(true);setError('');setAnswer('');try{const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message,context:JSON.stringify({symbol,interval,liveContext:context})})});const d=await r.json();if(!r.ok)throw new Error(d.error||'AI unavailable');setAnswer(d.text||'No response');setInput('')}catch(e){setError(e instanceof Error?e.message:'AI unavailable')}finally{setBusy(false)}};
+ const handleKeyDown=(e:React.KeyboardEvent<HTMLTextAreaElement>)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();void send()}};
  return React.createElement(React.Fragment,null,
   React.createElement('button',{className:'aiFab',onClick:()=>setOpen(!open)},open?'×':'AI'),
   open&&React.createElement('aside',{className:'aiChat',dir:fa?'rtl':'ltr'},
    React.createElement('div',{className:'aiHead'},React.createElement('div',null,React.createElement('b',null,'MARKET/INTEL AI'),React.createElement('small',null,`${symbol} · ${interval} · live context`)),React.createElement('button',{onClick:()=>setOpen(false)},'×')),
    React.createElement('div',{className:'aiBody'},answer?React.createElement('div',{className:'aiAnswer'},answer):React.createElement('p',{className:'muted'},fa?'درباره همین تحلیل زنده سؤال بپرس.':'Ask about the current live analysis.'),error&&React.createElement('p',{className:'down'},error)),
-   React.createElement('div',{className:'aiInput'},React.createElement('textarea',{value:input,onChange:e=>setInput(e.currentTarget.value),onKeyDown:e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}}},null),React.createElement('button',{onClick:send,disabled:busy},busy?'…':'Send'))
+   React.createElement('div',{className:'aiInput'},React.createElement('textarea',{value:input,onChange:e=>setInput(e.currentTarget.value),onKeyDown:handleKeyDown},null),React.createElement('button',{onClick:()=>void send(),disabled:busy},busy?'…':'Send'))
   )
  );
 }
