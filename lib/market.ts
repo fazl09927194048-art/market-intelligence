@@ -54,8 +54,8 @@ function makeSnapshot(input: Omit<MarketSnapshot, 'freshnessMs' | 'quality'>): M
 function validateSnapshot(row: MarketSnapshot): boolean {
   return validNumber(row.price) && row.price > 0 &&
     validNumber(row.change24h) &&
-    (!row.volume24h || (validNumber(row.volume24h) && row.volume24h >= 0)) &&
-    (!row.marketCap || (validNumber(row.marketCap) && row.marketCap >= 0));
+    (row.volume24h === undefined || (validNumber(row.volume24h) && row.volume24h >= 0)) &&
+    (row.marketCap === undefined || (validNumber(row.marketCap) && row.marketCap >= 0));
 }
 
 async function coinGecko(): Promise<MarketSnapshot[]> {
@@ -76,7 +76,7 @@ async function coinGecko(): Promise<MarketSnapshot[]> {
 }
 
 async function binance(): Promise<MarketSnapshot[]> {
-  const rows = await Promise.all(ASSETS.map(([symbol]) => json(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}USDT`)));
+  const rows = await Promise.all(ASSETS.map(([symbol]) => json(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}USDT`)));
   const fetchedAt = new Date().toISOString();
 
   return rows.map((row: unknown, i) => {
