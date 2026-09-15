@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdvancedMarketData, type AdvancedMarketData } from '@/lib/market-advanced';
+import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
@@ -72,6 +73,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const guard = consumeRateLimit(request, 'ai-chat', 12);
+  if (!guard.allowed) return jsonError('Too many AI requests. Please retry shortly.', 429, undefined, { retryAfterMs: guard.retryAfter * 1000 });
+  if (tooLarge(request, 48_000)) return jsonError('Request payload is too large.', 413);
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return jsonError('AI chat is not configured on the server.', 503);
