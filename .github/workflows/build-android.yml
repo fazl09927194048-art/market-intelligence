@@ -43,22 +43,23 @@ jobs:
           test -f android/build.gradle.kts
           test -f android/app/build.gradle.kts
           test -f android/app/src/main/AndroidManifest.xml
-          find android/app/src/main -maxdepth 5 -type f | sort
+          find android/app/src/main -maxdepth 6 -type f | sort
 
       - name: Build debug APK
         working-directory: android
         run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Verify APK output
+      - name: Prepare stable APK filename
         run: |
           test -s android/app/build/outputs/apk/debug/app-debug.apk
-          ls -lh android/app/build/outputs/apk/debug/app-debug.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/xXx-DRO.apk
+          ls -lh android/app/build/outputs/apk/debug/xXx-DRO.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: xXx-DRO-Android
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/xXx-DRO.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -73,7 +74,7 @@ jobs:
             Target Android: 15 (API 35)
           prerelease: false
           make_latest: true
-          files: android/app/build/outputs/apk/debug/app-debug.apk
+          files: android/app/build/outputs/apk/debug/xXx-DRO.apk
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
