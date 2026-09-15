@@ -1,9 +1,12 @@
 const DEFAULT_API = 'https://market-intelligence-840b.onrender.com';
-const REQUEST_TIMEOUT = 12000;
-const CACHE_TTL = 8000;
+const REQUEST_TIMEOUT = 7000;
+const CACHE_TTL = 5000;
 const STALE_TTL = 60000;
+const METRICS_TTL = 15000;
 const cache = new Map();
 const lastGood = new Map();
+const inFlight = new Map();
+const metricsCache = new Map();
 
 function cleanSymbol(value){
   const s=String(value||'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -36,29 +39,52 @@ async function runLoop(symbol,interval,context={},force=false){
   if(!force&&hit&&now-hit.at<CACHE_TTL){
     return {...hit.data,_cache:{state:'fresh',ageMs:now-hit.at}};
   }
-  const base=await getApiBase();
-  const params=new URLSearchParams({symbol:normalized,interval:normalizedInterval});
-  if(Number.isFinite(context.pagePrice)&&context.pagePrice>0)params.set('pagePrice',String(context.pagePrice));
-  if(context.observedAt)params.set('observedAt',String(context.observedAt));
-  if(context.extraction)params.set('extraction',String(context.extraction));
-  try{
-    const data=await fetchJson(`${base}/api/loop?${params.toString()}`);
-    cache.set(key,{at:now,data});
-    lastGood.set(key,{at:now,data});
-    return {...data,_cache:{state:'fresh',ageMs:0}};
-  }catch(error){
-    const stale=lastGood.get(key);
-    if(stale&&now-stale.at<=STALE_TTL){
-      return {...stale.data,_cache:{state:'stale',ageMs:now-stale.at,error:String(error?.message||error)}};
+  if(!force){
+    const pending=inFlight.get(key);
+    if(pending){
+      const data=await pending;
+      return {...data,_cache:{state:'fresh',ageMs:Date.now()-Number(data?._serverAt||now)}};
     }
-    throw error;
   }
+  const request=(async()=>{
+    const base=await getApiBase();
+    const params=new URLSearchParams({symbol:normalized,interval:normalizedInterval});
+    if(Number.isFinite(context.pagePrice)&&context.pagePrice>0)params.set('pagePrice',String(context.pagePrice));
+    if(context.observedAt)params.set('observedAt',String(context.observedAt));
+    if(context.extraction)params.set('extraction',String(context.extraction));
+    try{
+      const data=await fetchJson(`${base}/api/loop?${params.toString()}`);
+      const at=Date.now();
+      cache.set(key,{at,data});
+      lastGood.set(key,{at,data});
+      return {...data,_serverAt:at};
+    }catch(error){
+      const stale=lastGood.get(key);
+      if(stale&&Date.now()-stale.at<=STALE_TTL){
+        return {...stale.data,_cache:{state:'stale',ageMs:Date.now()-stale.at,error:String(error?.message||error)}};
+      }
+      throw error;
+    }finally{
+      inFlight.delete(key);
+    }
+  })();
+  inFlight.set(key,request);
+  const data=await request;
+  if(data?._cache?.state==='stale')return data;
+  const ageMs=Math.max(0,Date.now()-Number(data?._serverAt||Date.now()));
+  const {_serverAt,...cleanData}=data||{};
+  return {...cleanData,_cache:{state:'fresh',ageMs}};
 }
 
 async function forecastMetrics(symbol){
+  const normalized=cleanSymbol(symbol);
+  const hit=metricsCache.get(normalized);
+  if(hit&&Date.now()-hit.at<METRICS_TTL)return hit.data;
   const base=await getApiBase();
-  const params=new URLSearchParams({symbol:cleanSymbol(symbol)});
-  return fetchJson(`${base}/api/forecast-metrics?${params.toString()}`);
+  const params=new URLSearchParams({symbol:normalized});
+  const data=await fetchJson(`${base}/api/forecast-metrics?${params.toString()}`);
+  metricsCache.set(normalized,{at:Date.now(),data});
+  return data;
 }
 
 async function aiChat(message,context){
