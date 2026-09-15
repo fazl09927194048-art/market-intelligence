@@ -3,7 +3,7 @@ import { getAdvancedMarketData, type AdvancedMarketData } from '@/lib/market-adv
 
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
-const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || '';
+const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || (MODEL === 'gpt-5.6-luna' ? 'gpt-5.6-terra' : 'gpt-5.6-luna');
 const inFlight = new Map<string, Promise<{ status: number; body: any }>>();
 const liveCache = new Map<string, { at: number; data: AdvancedMarketData }>();
 const LIVE_TTL = 3000;
@@ -16,8 +16,8 @@ function jsonError(message: string, status: number, detail?: string, extra: Reco
 }
 function retryDelay(response: Response) {
   const h = Number(response.headers.get('retry-after'));
-  if (Number.isFinite(h) && h >= 0) return Math.min(6000, Math.max(250, h * 1000));
-  return 1800 + Math.floor(Math.random() * 300);
+  if (Number.isFinite(h) && h >= 0) return Math.min(5000, Math.max(500, h * 1000));
+  return 1500 + Math.floor(Math.random() * 500);
 }
 
 async function callProvider(apiKey: string, model: string, prompt: string) {
@@ -68,7 +68,7 @@ async function getLive(symbol: string, interval: string) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL, fallbackConfigured: Boolean(FALLBACK_MODEL), timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL, fallbackConfigured: Boolean(FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: NextRequest) {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
           status: rate ? 429 : result.status >= 500 ? 502 : result.status,
           body: {
             ok: false,
-            error: rate ? 'AI provider is rate-limited or quota-limited. DRO live market data remains available; please retry shortly.' : `AI provider error (${result.status}).`,
+            error: rate ? 'AI provider is temporarily rate-limited or quota-limited. DRO live market data remains available; please retry shortly.' : `AI provider error (${result.status}).`,
             detail: result.detail?.slice(0, 500),
             retryable: rate || result.status >= 500,
             retryAfterMs: rate ? 2500 : 0,
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
     inFlight.set(key, work);
     try {
       const result = await work;
-      return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store', ...(result.status === 429 ? { 'Retry-After': '3' } : {}) } });
     } finally {
       inFlight.delete(key);
     }
