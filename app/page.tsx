@@ -1,6 +1,7 @@
 'use client';
 import React,{useCallback,useEffect,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
+import DROSite from '@/app/components/DROSite';
 type Market={symbol:string;name:string;price:number;change24h:number;source?:string;quality?:string};
 type Loop={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId?:string;signal?:any;forecast?:any;consensus?:any;risk?:any;multiTimeframe?:any;chartPatterns?:any;newsImpact?:any;eventReaction?:any;warnings?:string[];news?:any[]};
 type Metrics={total:number;wins:number;losses:number;winRate:number|null;averageReturnPct:number|null;averageCalibrationGap:number|null};
@@ -30,5 +31,5 @@ export default function Home(){
  const watch=h('section',{className:'section watch',id:'watchlist'},h('div',{className:'sectionHead'},h('h2',null,text('WATCHLIST','دیده‌بان')),h('small',null,'NO AUTO-TRADING')),h('div',{className:'watchGrid'},markets.slice(0,6).map(x=>h('button',{key:x.symbol,onClick:()=>setSymbol(x.symbol)},h('b',null,x.symbol.replace('USDT','')),h('span',null,money(x.price)),h('em',{className:x.change24h>=0?'up':'down'},(x.change24h>=0?'+':'')+x.change24h.toFixed(2)+'%')))));
  const footer=h('footer',{className:'footer'},h('b',null,'MARKET/INTEL'),' · informational intelligence only · no automatic orders, transfers or withdrawals.');
  const chatContext={signal:s,forecast:f,risk:r,consensus:c,multiTimeframe:m,newsImpact:loop?.newsImpact,events:loop?.eventReaction,news:(loop?.news||[]).slice(0,10),warnings};
- return h(React.Fragment,null,h('main',{className:'shell',dir:fa?'rtl':'ltr'},header,hero,h('section',{className:'ticker',id:'markets'},cards),command,grid,newsSection,watch,footer),h(AIChat,{symbol,interval,context:chatContext,fa}));
+ return h(React.Fragment,null,h('main',{className:'shell',dir:fa?'rtl':'ltr'},header,hero,h('section',{className:'ticker',id:'markets'},cards),command,grid,newsSection,watch,footer),h(DROSite,{symbol,interval,fa}),h(AIChat,{symbol,interval,context:chatContext,fa}));
 }
