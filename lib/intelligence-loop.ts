@@ -16,6 +16,7 @@ const FEEDS = [
   { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', category: 'CRYPTO', source: 'CoinDesk' },
   { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html', category: 'MARKETS', source: 'CNBC' },
 ];
+const NEWS_TIMEOUT_MS = 8_000;
 
 function clean(value: string): string {
   return value.replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
@@ -33,9 +34,15 @@ function parse(xml: string, category: string, source: string): Story[] {
 
 async function loadNews(): Promise<NewsItem[]> {
   const results = await Promise.allSettled(FEEDS.map(async feed => {
-    const response = await fetch(feed.url, { headers: { 'User-Agent': 'MarketIntelligence/1.0' }, cache: 'no-store' });
-    if (!response.ok) throw new Error(`${feed.source}:${response.status}`);
-    return parse(await response.text(), feed.category, feed.source);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), NEWS_TIMEOUT_MS);
+    try {
+      const response = await fetch(feed.url, { headers: { 'User-Agent': 'MarketIntelligence/1.0' }, cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error(`${feed.source}:${response.status}`);
+      return parse(await response.text(), feed.category, feed.source);
+    } finally {
+      clearTimeout(timer);
+    }
   }));
   return enrichNews(results.flatMap(result => result.status === 'fulfilled' ? result.value : []));
 }
@@ -50,11 +57,11 @@ function summarizeNewsImpact(news: NewsItem[], events: ReturnType<typeof detectE
 }
 
 function horizonMs(interval: string) {
-  const m = interval.match(/^(\d+)(m|h|d|w)$/);
+  const m = interval.match(/^(\d+)(m|h|d|w|M)$/);
   if (!m) return 3_600_000;
   const n = Number(m[1]);
   const unit = m[2];
-  const ms = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : 604_800_000;
+  const ms = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : unit === 'w' ? 604_800_000 : 30 * 86_400_000;
   return n * ms * 8;
 }
 
@@ -87,7 +94,9 @@ export async function runIntelligenceCycle(symbol = 'BTCUSDT', interval = '15m',
   const startPrice = advanced.futures.price ?? advanced.spot.price;
   const forecastAt = new Date().toISOString();
   if (startPrice !== null && Number.isFinite(startPrice) && startPrice > 0 && forecast.bias !== 'UNAVAILABLE') {
-    void recordForecastSnapshot({ id: `${cycleId}:forecast`, symbol: safeSymbol, interval: safeInterval, forecastAt, bias: forecast.bias, confidence: forecast.confidence, startPrice, expectedLow: forecast.expectedLow, expectedHigh: forecast.expectedHigh, horizonMs: horizonMs(safeInterval), cycleId }).catch(() => undefined);
+    const forecastBucket = Math.floor(Date.now() / 60_000);
+    const snapshotId = `${safeSymbol}:${safeInterval}:${forecastBucket}`;
+    void recordForecastSnapshot({ id: snapshotId, symbol: safeSymbol, interval: safeInterval, forecastAt, bias: forecast.bias, confidence: forecast.confidence, startPrice, expectedLow: forecast.expectedLow, expectedHigh: forecast.expectedHigh, horizonMs: horizonMs(safeInterval), cycleId }).catch(() => undefined);
   }
   return { cycleId, generatedAt: forecastAt, symbol: safeSymbol, interval: safeInterval, chartContext: chart, chartPatterns, multiTimeframe, risk, eventReaction, market, marketData: advanced, technical, signal, forecast, analysts, consensus, news: assetNews.slice(0, 20), events: events.slice(0, 10), newsImpact, dataValid: market.markets.length > 0 && candles.length >= 20 && technical.confidence >= 50, sourceHealth: advanced.sourceHealth, warnings };
 }
