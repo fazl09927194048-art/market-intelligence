@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DRO — AI Market Intelligence",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DRO floating AI market intelligence tool with live market analysis, chart context, order flow, derivatives, risk, news, AI Coach and deep scan.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*", "https://market-intelligence-840b.onrender.com/*"],
