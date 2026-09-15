@@ -17,16 +17,15 @@ export function evaluateForecast(input:{id?:string;symbol:string;forecastAt:stri
   const directionCorrect=input.bias==='BULLISH'?ret>threshold:input.bias==='BEARISH'?ret<-threshold:null;
   const inRange=finite(input.expectedLow)&&finite(input.expectedHigh)?end>=input.expectedLow&&end<=input.expectedHigh:true;
 
-  let pathOutcome:'WIN'|'LOSS'|null=null;
+  let pathOutcome:'WIN'|'LOSS'|'NEUTRAL'|null=null;
   if(input.path?.length&&finite(input.expectedLow)&&finite(input.expectedHigh)){
     const candles=input.path.filter(c=>Number.isFinite(c.openTime)&&Number.isFinite(c.high)&&Number.isFinite(c.low)&&c.high>=c.low).sort((a,b)=>a.openTime-b.openTime);
     for(const c of candles){
       const hitHigh=c.high>=input.expectedHigh;
       const hitLow=c.low<=input.expectedLow;
-      if(hitHigh&&!hitLow)pathOutcome=input.bias==='BULLISH'?'WIN':'LOSS';
-      else if(hitLow&&!hitHigh)pathOutcome=input.bias==='BEARISH'?'WIN':'LOSS';
-      if(pathOutcome)break;
-      if(hitHigh&&hitLow)break;
+      if(hitHigh&&hitLow){pathOutcome='NEUTRAL';break;}
+      if(hitHigh){pathOutcome=input.bias==='BULLISH'?'WIN':'LOSS';break;}
+      if(hitLow){pathOutcome=input.bias==='BEARISH'?'WIN':'LOSS';break;}
     }
   }
   const outcome=input.bias==='UNAVAILABLE'?'INVALIDATED':pathOutcome??(directionCorrect===true?'WIN':directionCorrect===false?'LOSS':inRange?'NEUTRAL':'INVALIDATED');
