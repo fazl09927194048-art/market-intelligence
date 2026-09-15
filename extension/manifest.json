@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
   "name": "DRO — AI Market Intelligence",
-  "version": "0.9.1",
-  "description": "DRO floating AI market intelligence tool with live market analysis, compact tools, draggable persistence, chart intelligence and AI Coach.",
+  "version": "1.0.0",
+  "description": "DRO floating AI market intelligence tool with live market analysis, chart context, order flow, derivatives, risk, news, AI Coach and deep scan.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*", "https://market-intelligence-840b.onrender.com/*"],
   "background": {"service_worker": "background.js", "type": "module"},
   "action": {"default_title": "DRO — AI Market Intelligence", "default_popup": "popup.html"},
-  "content_scripts": [{"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"}, {"matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"], "js": ["stream.js"], "run_at": "document_idle"}],
+  "content_scripts": [
+    {"matches": ["<all_urls>"], "js": ["content.js"], "run_at": "document_idle"},
+    {"matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"], "js": ["stream.js"], "run_at": "document_idle"}
+  ],
   "icons": {"128": "icon.svg"}
 }
