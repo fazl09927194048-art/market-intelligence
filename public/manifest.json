@@ -1,0 +1,10 @@
+{
+  "name": "Market Intelligence",
+  "short_name": "Market Intel",
+  "description": "Live market intelligence dashboard with data, analysis and forecasts.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050505",
+  "theme_color": "#050505",
+  "icons": []
+}
