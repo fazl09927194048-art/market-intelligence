@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Market/Intel — AI Market Overlay",
-  "version": "0.6.0",
-  "description": "Live market intelligence overlay, multi-timeframe signals, forecast health and AI Coach for supported chart pages.",
+  "name": "DRO — AI Market Intelligence",
+  "version": "0.7.0",
+  "description": "DRO live market intelligence: real-time market stream, multi-timeframe analysis, 33 analyst views, forecast validation, risk, news, events and AI Coach.",
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://*.binance.com/*",
@@ -11,7 +11,7 @@
     "https://market-intelligence-840b.onrender.com/*"
   ],
   "background": {"service_worker": "background.js", "type": "module"},
-  "action": {"default_title": "Market/Intel", "default_popup": "popup.html"},
+  "action": {"default_title": "DRO — AI Market Intelligence", "default_popup": "popup.html"},
   "content_scripts": [{
     "matches": ["https://*.binance.com/*", "https://*.kucoin.com/*", "https://*.tradingview.com/*"],
     "js": ["stream.js", "content.js"],
