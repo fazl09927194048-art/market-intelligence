@@ -24,8 +24,10 @@ const FEEDS = [
 ] as const;
 const NEWS_TIMEOUT_MS = 4_000;
 const NEWS_CACHE_TTL_MS = 20_000;
+const CYCLE_CACHE_TTL_MS = 8_000;
 let newsCache: { at: number; data: NewsItem[] } | null = null;
 let newsInFlight: Promise<NewsItem[]> | null = null;
+const cycleCache=new Map<string,{at:number;result:Awaited<ReturnType<typeof runCycleInternal>>}>();
 
 function clean(value: string): string { return value.replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/<[^>]+>/g, '').trim(); }
 function parse(xml: string, category: string, source: string): Story[] { return [...xml.matchAll(/<item[\s\S]*?<\/item>/gi)].slice(0, 30).map(block => { const item = block[0]; const get = (tag: string) => clean(item.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i'))?.[1] ?? ''); const published = get('pubDate') || get('published') || get('updated'); const parsedDate = published ? Date.parse(published) : NaN; return { title: get('title'), url: get('link') || get('guid'), source, category, publishedAt: Number.isNaN(parsedDate) ? new Date().toISOString() : new Date(parsedDate).toISOString() }; }).filter(story => story.title.length > 0 && story.url.length > 0); }
@@ -92,9 +94,11 @@ export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chart
   const safeInterval=normalizeInterval(interval);
   const chart=normalizeChartContext(chartInput,safeSymbol,safeInterval) ?? { source:'browser', symbol:safeSymbol, interval:safeInterval, pagePrice:null, observedAt:new Date().toISOString(), extraction:'none', quality:'none', ageMs:0 };
   const key=`${safeSymbol}:${safeInterval}`;
+  const cached=cycleCache.get(key);
+  if(cached&&Date.now()-cached.at<CYCLE_CACHE_TTL_MS){return {...cached.result,cycleId:`${safeSymbol}-cached-${cached.at}`,generatedAt:new Date(cached.result.generatedAt).toISOString(),chartContext:chart};}
   const pending=cycleInFlight.get(key);
-  if(pending){const result=await pending;return {...result,cycleId:`${safeSymbol}-${Date.now()}`,generatedAt:new Date().toISOString(),chartContext:chart};}
-  const promise=runCycleInternal(safeSymbol,safeInterval,chart).finally(()=>cycleInFlight.delete(key));
+  if(pending){const result=await pending;return {...result,cycleId:`${safeSymbol}-shared-${Date.now()}`,generatedAt:new Date().toISOString(),chartContext:chart};}
+  const promise=runCycleInternal(safeSymbol,safeInterval,chart).then(result=>{cycleCache.set(key,{at:Date.now(),result});if(cycleCache.size>24){const oldest=[...cycleCache.entries()].sort((a,b)=>a[1].at-b[1].at)[0];if(oldest)cycleCache.delete(oldest[0]);}return result;}).finally(()=>cycleInFlight.delete(key));
   cycleInFlight.set(key,promise);
   return promise;
 }
