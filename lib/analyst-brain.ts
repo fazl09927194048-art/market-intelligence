@@ -2,7 +2,7 @@ import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
 import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
-import { buildMemoryContext, getAnalystProfile, initializePersistentMemory, rememberAnalystOpinions } from './analyst-memory';
+import { buildMemoryContext, initializePersistentMemory, rememberAnalystOpinions } from './analyst-memory';
 
 export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
@@ -54,9 +54,10 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
-    const rawScore=s, memoryWeight=memory.profile.currentWeight;
+    const rawScore=s, memoryWeight=memory.effectiveWeight;
     s=rawScore*memoryWeight;
     if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${memoryWeight.toFixed(3)}.`);
+    if (memory.profile.evaluatedPredictions>=12 && memory.effectiveWeight!==memory.profile.currentWeight) evidence.push(`Regime-aware adjustment active for ${regime}: ${memory.effectiveWeight.toFixed(3)}.`);
     if (memory.memories.length) evidence.push(`Retrieved ${memory.memories.length} relevant memory records for ${data.symbol}.`);
     if (memory.profile.recentLessons.length) evidence.push(`Relevant lessons retained: ${memory.profile.recentLessons.slice(-3).join(' | ')}`);
     if(t.volatility.regime==='HIGH'&&Math.abs(s)>30) conflicts.push('High volatility reduces confidence.');
