@@ -69,7 +69,7 @@ async function getLive(symbol: string, interval: string) {
 }
 
 export async function GET() {
-  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL, fallbackConfigured: Boolean(FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL, fallbackConfigured: Boolean(process.env.OPENAI_FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: NextRequest) {
@@ -126,7 +126,8 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       let result = await callProvider(apiKey, MODEL, prompt);
-      if (!result.ok && result.status === 429 && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
+      const transientFailure = [429, 500, 502, 503, 504].includes(result.status);
+      if (!result.ok && transientFailure && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
         result = await callProvider(apiKey, FALLBACK_MODEL, prompt);
       }
       if (!result.ok) {
