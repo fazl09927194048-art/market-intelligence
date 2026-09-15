@@ -2,19 +2,52 @@ name: Package DRO browser extension
 on:
   push:
     branches: [main]
+    paths:
+      - 'extension/**'
+      - '.github/workflows/package-extension.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate extension manifest
+        run: node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('extension/manifest.json','utf8')); if(m.manifest_version!==3) throw new Error('Manifest V3 required'); for(const f of ['background.js','content.js','stream.js','popup.html','popup.js','popup.css','icon.svg']) if(!fs.existsSync('extension/'+f)) throw new Error('Missing extension/'+f); console.log('DRO extension manifest OK:',m.version)"
+
       - name: Package DRO extension
         run: |
+          rm -rf dist
           mkdir -p dist
           cd extension
           zip -r ../dist/dro-extension.zip . -x '*.DS_Store'
+          cd ..
+          sha256sum dist/dro-extension.zip | tee dist/SHA256SUMS.txt
+
       - name: Upload DRO extension artifact
         uses: actions/upload-artifact@v4
         with:
           name: dro-extension
-          path: dist/dro-extension.zip
+          path: |
+            dist/dro-extension.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publish latest DRO release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dro-latest
+          name: DRO Browser Extension — Latest
+          body: |
+            Automatically packaged from the latest `main` branch.
+
+            Install: download `dro-extension.zip`, extract it, then load the extracted `extension` folder with Chrome/Edge Developer Mode → Load unpacked.
+          files: |
+            dist/dro-extension.zip
+            dist/SHA256SUMS.txt
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
