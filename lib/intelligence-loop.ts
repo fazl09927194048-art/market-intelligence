@@ -77,7 +77,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const analysts = await runAnalystBrain(advanced, technical, assetNews);
   const currentPrice = advanced.futures.price ?? advanced.spot.price;
   const regime = String((technical as any).volatilityRegime ?? (technical as any).regime ?? 'UNKNOWN');
-  rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined);
+  rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined, safeInterval);
   const outcomeLearning = currentPrice && Number.isFinite(currentPrice) ? evaluateMaturedPredictions(safeSymbol, safeInterval, currentPrice, regime) : { evaluated: 0, skipped: 0 };
   const consensus = synthesizeOpinions(analysts);
   const decisionAudit = buildDecisionAudit(analysts, scenarios);
