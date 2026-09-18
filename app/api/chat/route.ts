@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdvancedMarketData, type AdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
+import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
