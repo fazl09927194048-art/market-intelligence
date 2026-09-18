@@ -21,7 +21,7 @@ function retryDelay(response: Response) {
   return 1500 + Math.floor(Math.random() * 500);
 }
 
-async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<import('@/lib/signal').ChartVisionContext|null> {
+async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<import('@/lib/signal').import('@/lib/signal').ChartVisionContext|null> {
   const prompt='Analyze this trading chart image only. Do not invent unreadable values. Return ONLY valid JSON with keys direction (BULLISH|BEARISH|NEUTRAL|UNKNOWN), confidence (0-100), trend, support (number[]), resistance (number[]), patterns (string[]), invalidation (string|null), evidence (string[]).';
   const result=await callProvider(apiKey,model,prompt,imageData);
   if(!result.ok||!result.text)return null;
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
       chartData = { symbol, interval, dataQuality: 'unavailable' };
     }
 
-    let chartVision: ChartVisionContext|null = null;
+    let chartVision: import('@/lib/signal').ChartVisionContext|null = null;
     if (imageAttached) chartVision = await extractChartVision(apiKey, MODEL, imageData);
     let centralIntelligence:any = null;
     try { centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision); } catch { centralIntelligence = null; }
