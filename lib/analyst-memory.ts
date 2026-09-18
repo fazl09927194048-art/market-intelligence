@@ -23,23 +23,24 @@ export async function initializePersistentMemory(){
 }
 
 export function remember(record:Omit<AnalystMemoryRecord,'id'|'timestamp'>){const item={...record,id:hashId(`${record.analystId}:${record.kind}:${record.summary}`),timestamp:new Date().toISOString()};records.push(item);if(records.length>MAX_RECORDS)records.splice(0,records.length-MAX_RECORDS);void persist(item);return item;}
-export function rememberAnalystOpinions(symbol:string,regime:string,opinions:AnalystOpinion[],entryPrice?:number){for(const o of opinions)remember({analystId:o.id,kind:'PREDICTION',symbol,regime,summary:`${o.direction} ${o.score} / ${o.confidence}%`,evidence:[...o.evidence.slice(0,11),...(Number.isFinite(entryPrice)&&Number(entryPrice)>0?[`entryPrice:${Number(entryPrice)}`]:[])],tags:[o.direction,regime,o.independentMethod],confidence:o.confidence});}
-export function recordAnalystOutcome(analystId:string,symbol:string,regime:string,outcome:AnalystOutcome,returnPct:number,lesson:string){remember({analystId,kind:outcome==='OPEN'?'OBSERVATION':'OUTCOME',symbol,regime,summary:`${outcome}: ${returnPct.toFixed(4)}%`,evidence:lesson?[lesson]:[],tags:[outcome,regime],confidence:100,outcome,returnPct});if(lesson.trim())remember({analystId,kind:'LESSON',symbol,regime,summary:lesson.trim(),evidence:[],tags:[regime],confidence:100});adaptWeight(analystId);void persistProfile(analystId);}
+export function rememberAnalystOpinions(symbol:string,regime:string,opinions:AnalystOpinion[],entryPrice?:number,interval='15m'){\n  const now=Date.now();\n  for(const o of opinions){\n    const recent=records.slice(-2000).some(r=>r.kind==='PREDICTION'&&r.analystId===o.id&&r.symbol===symbol&&r.evidence.includes(`interval:${interval}`)&&now-Date.parse(r.timestamp)<60_000);\n    if(recent)continue;\n    remember({analystId:o.id,kind:'PREDICTION',symbol,regime,summary:`${o.direction} ${o.score} / ${o.confidence}%`,evidence:[...o.evidence.slice(0,11),`interval:${interval}`,...(Number.isFinite(entryPrice)&&Number(entryPrice)>0?[`entryPrice:${Number(entryPrice)}`]:[])],tags:[o.direction,regime,o.independentMethod,`interval:${interval}`],confidence:o.confidence});\n  }\n}
+export function recordAnalystOutcome(analystId:string,symbol:string,regime:string,outcome:AnalystOutcome,returnPct:number,lesson:string,predictionId?:string){remember({analystId,kind:outcome==='OPEN'?'OBSERVATION':'OUTCOME',symbol,regime,summary:`${outcome}: ${returnPct.toFixed(4)}%`,evidence:[...(lesson?[lesson]:[]),...(predictionId?[`predictionId:${predictionId}`]:[])],tags:[outcome,regime],confidence:100,outcome,returnPct});if(lesson.trim())remember({analystId,kind:'LESSON',symbol,regime,summary:lesson.trim(),evidence:predictionId?[`predictionId:${predictionId}`]:[],tags:[regime],confidence:100});adaptWeight(analystId);void persistProfile(analystId);}
 function adaptWeight(id:string){const e=records.filter(r=>r.analystId===id&&r.kind==='OUTCOME'&&r.outcome!=='OPEN').slice(-120);if(e.length<20)return;const w=e.filter(r=>r.outcome==='WIN').length;const avg=e.reduce((s,r)=>s+(r.returnPct??0),0)/e.length;const sw=(w+10)/(e.length+20);const performance=clamp((sw-.5)*2+clamp(avg/5,-1,1),-1,1);const reliability=clamp(e.length/50,.35,1);const p=performance*(0.4+0.6*reliability);const previous=ensureWeight(id);const target=clamp(1+p*.45,.55,1.45);weights.set(id,Number(clamp(previous*.7+target*.3,.55,1.45).toFixed(4)));}
 export function evaluateMaturedPredictions(symbol:string,interval:string,currentPrice:number,regime:string){
   if(!Number.isFinite(currentPrice)||currentPrice<=0)return {evaluated:0,skipped:0};
-  const unit=interval.endsWith('m')?60000:interval.endsWith('h')?3600000:interval.endsWith('d')?86400000:3600000;
-  const n=Number.parseInt(interval,10)||1; const horizon=Math.max(unit*n*3,unit*n*8);
+  const toMs=(value:string)=>{const m=value.match(/^(\\d+)(m|h|d)$/);if(!m)return 3_600_000;const n=Number(m[1]);return n*(m[2]==='m'?60_000:m[2]==='h'?3_600_000:86_400_000);};
   const now=Date.now(); let evaluated=0,skipped=0;
   for(const p of records.filter(r=>r.kind==='PREDICTION'&&r.symbol===symbol).slice(-500)){
-    if(evaluatedPredictionIds.has(p.id)){skipped++;continue;}
+    if(evaluatedPredictionIds.has(p.id)||records.some(r=>r.kind==='OUTCOME'&&r.evidence.includes(`predictionId:${p.id}`))){skipped++;evaluatedPredictionIds.add(p.id);continue;}
+    const predictionInterval=p.evidence.find(x=>x.startsWith('interval:'))?.slice(9) || p.tags.find(x=>x.startsWith('interval:'))?.slice(9) || interval;
+    const horizon=toMs(predictionInterval)*8;
     const age=now-Date.parse(p.timestamp); if(!Number.isFinite(age)||age<horizon){skipped++;continue;}
     const entry=Number(p.evidence.find(x=>x.startsWith('entryPrice:'))?.slice(11));
     if(!Number.isFinite(entry)||entry<=0){skipped++;continue;}
     const direction=p.tags[0]; if(direction!=='LONG'&&direction!=='SHORT'){skipped++;continue;}
     const returnPct=(direction==='LONG'?currentPrice-entry:entry-currentPrice)/entry*100;
     const outcome=returnPct>0?'WIN':returnPct<0?'LOSS':'INVALIDATED';
-    recordAnalystOutcome(p.analystId,symbol,regime,outcome,returnPct,'Auto-evaluated after '+interval+'; prediction '+direction+' at '+entry+'.');
+    recordAnalystOutcome(p.analystId,symbol,p.regime||regime,outcome,returnPct,'Auto-evaluated after '+predictionInterval+'; prediction '+direction+' at '+entry+'.',p.id);
     evaluatedPredictionIds.add(p.id); evaluated++;
   }
   return {evaluated,skipped};
