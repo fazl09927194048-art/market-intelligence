@@ -58,6 +58,27 @@ async function loadNews(): Promise<NewsItem[]> {
 function summarizeNewsImpact(news: NewsItem[], events: ReturnType<typeof detectEvents>) { const breaking = events.filter(e => e.impact === 'BREAKING'); const high = events.filter(e => e.impact === 'HIGH'); const bullish = news.filter(n => n.sentiment === 'BULLISH' && (n.impact === 'HIGH' || n.impact === 'BREAKING')).length; const bearish = news.filter(n => n.sentiment === 'BEARISH' && (n.impact === 'HIGH' || n.impact === 'BREAKING')).length; const newest = [...news].sort((a, b) => a.freshnessMs - b.freshnessMs)[0]; return { level: breaking.length ? 'BREAKING' : high.length ? 'HIGH' : news.length ? 'MEDIUM' : 'NONE', breakingCount: breaking.length, highImpactCount: high.length, bullishHighImpact: bullish, bearishHighImpact: bearish, latestPublishedAt: newest?.publishedAt ?? null, latestAgeMs: newest?.freshnessMs ?? null, sourceCount: new Set(news.map(n => n.source)).size, headlines: breaking.slice(0, 5).map(e => ({ title: e.title, source: e.source, assets: e.assets, sentiment: e.sentiment, url: e.url, publishedAt: e.publishedAt })) }; }
 function horizonMs(interval: string) { const m = interval.match(/^(\d+)(m|h|d|w|M)$/); if (!m) return 3_600_000; const n = Number(m[1]); const unit = m[2]; const ms = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : unit === 'w' ? 604_800_000 : 30 * 86_400_000; return n * ms * 8; }
 
+function buildMarketIntelligenceScore(technical:any,multi:any,risk:any,signal:any,scenarios:any,newsImpact:any,advanced:any){
+  const clamp=(n:number)=>Math.max(0,Math.min(100,Math.round(n)));
+  const trend=technical?.structure?.trend;
+  const trendScore=trend==='UP'||trend==='DOWN'?80:trend==='SIDEWAYS'?50:25;
+  const momentum=technical?.indicators?.rsi14;
+  const momentumScore=momentum==null?50:(momentum>=55&&momentum<=72)||(momentum>=28&&momentum<=45)?75:55;
+  const flow=advanced?.microstructure?.deltaNotional;
+  const flowTotal=(advanced?.microstructure?.buyNotional||0)+(advanced?.microstructure?.sellNotional||0);
+  const flowScore=flowTotal>0?clamp(50+(flow/flowTotal)*50):50;
+  const liquidity=advanced?.microstructure?.orderBookImbalance;
+  const liquidityScore=liquidity==null?50:clamp(50+liquidity*100);
+  const mtf=multi?.score??50;
+  const newsPenalty=newsImpact?.level==='BREAKING'?20:newsImpact?.level==='HIGH'?10:0;
+  const riskPenalty=Math.min(35,Number(risk?.score)||0);
+  const raw=trendScore*.18+momentumScore*.12+flowScore*.20+liquidityScore*.12+Number(mtf)*.18+Number(signal?.confidence||0)*.10+Number(scenarios?.scenarios?.[0]?.probability||50)*.10-newsPenalty*.35-riskPenalty*.15;
+  const score=clamp(raw);
+  const regime=technical?.volatility?.regime==='HIGH'?'HIGH_VOLATILITY':trend==='UP'?'TREND_UP':trend==='DOWN'?'TREND_DOWN':trend==='SIDEWAYS'?'SIDEWAYS':'UNKNOWN';
+  const manipulationRisk=clamp(Math.abs(Number(liquidity)||0)*100+((technical?.volatility?.regime==='HIGH')?35:0)+(Math.abs(Number(advanced?.derivatives?.basisPct)||0)>0.5?20:0));
+  return {score,regime,manipulationRisk,components:{trend:trendScore,momentum:momentumScore,flow:flowScore,liquidity:liquidityScore,multiTimeframe:Number(mtf)||0,signal:Number(signal?.confidence)||0},method:'Weighted live-data intelligence score; not a profit probability.'};
+}
+
 const cycleInFlight=new Map<string,ReturnType<typeof runCycleInternal>>();
 async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:ChartContext,chartVision?:ChartVisionContext|null){
   await initializePersistentMemory();
@@ -106,6 +127,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const invalidation = evaluateInvalidation(signal, technical, advanced, { confidenceGate, eventReaction, multiTimeframe: multiTimeFrame, scenarios });
   if (invalidation.status === 'NO_TRADE') warnings.push(`Invalidation engine blocked directional execution: ${invalidation.reasons.join(' | ')}`);
   else if (invalidation.status === 'CAUTION') warnings.push(`Invalidation engine raised caution: ${invalidation.reasons.join(' | ')}`);
+  const intelligenceScore=buildMarketIntelligenceScore(technical,multiTimeFrame,risk,signal,scenarios,newsImpact,advanced);
   const finalSignal = invalidation.finalSignal === signal.signal ? signal : {
     ...signal,
     signal: 'NO TRADE' as const,
@@ -125,7 +147,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,intelligenceScore,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null,chartVision?:ChartVisionContext|null){
