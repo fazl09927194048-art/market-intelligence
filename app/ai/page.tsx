@@ -62,6 +62,11 @@ export default function AIPage(){
   </section>
 
   <section className="aiPanel auditPanel">
+   <div className="aiPanelHead"><div><small>ANALYST FAMILY WEIGHTS</small><h2>De-correlated Evidence Map</h2></div><span>WEIGHTED IMPACT</span></div>
+   <div className="familyGrid">{(data?.decisionAudit?.familyImpact||[]).map((x:any)=><div className="familyCard" key={x.family}><small>{x.family}</small><b>{x.signed>0?'+':''}{x.signed}</b><span>{x.analysts} specialists · impact {x.impact}</span></div>)}</div>
+  </section>
+
+  <section className="aiPanel auditPanel">
    <div className="aiPanelHead"><div><small>CENTRAL DECISION AUDIT</small><h2>Why the Engine Reached This State</h2></div><span>{data?.decisionAudit?.coverage||0} SPECIALISTS VERIFIED</span></div>
    <div className="auditGrid">
     <div className="auditStat"><small>LONG / SHORT / NEUTRAL</small><b>{data?.decisionAudit?.directions?.LONG??0} / {data?.decisionAudit?.directions?.SHORT??0} / {data?.decisionAudit?.directions?.NEUTRAL??0}</b></div>
