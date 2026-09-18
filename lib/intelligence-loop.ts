@@ -2,7 +2,7 @@ import { getMarkets } from '@/lib/market';
 import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { analyzeTechnical } from '@/lib/technical';
 import { analyzeChartPatterns } from '@/lib/chart-patterns';
-import { buildSignal, buildForecast } from '@/lib/signal';
+import { buildSignal, buildForecast, applyChartVision, type ChartVisionContext } from '@/lib/signal';
 import { assessRisk } from '@/lib/risk-engine';
 import { enrichNews, detectEvents, type NewsItem } from '@/lib/news-intelligence';
 import { assessEventReaction } from '@/lib/event-reaction';
@@ -59,13 +59,13 @@ function summarizeNewsImpact(news: NewsItem[], events: ReturnType<typeof detectE
 function horizonMs(interval: string) { const m = interval.match(/^(\d+)(m|h|d|w|M)$/); if (!m) return 3_600_000; const n = Number(m[1]); const unit = m[2]; const ms = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : unit === 'd' ? 86_400_000 : unit === 'w' ? 604_800_000 : 30 * 86_400_000; return n * ms * 8; }
 
 const cycleInFlight=new Map<string,ReturnType<typeof runCycleInternal>>();
-async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:ChartContext){
+async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:ChartContext,chartVision?:ChartVisionContext|null){
   await initializePersistentMemory();
   const [market, advanced, news, multiTimeFrame] = await Promise.all([getMarkets(), getAdvancedMarketData(safeSymbol, safeInterval, 200), loadNews(), analyzeMultiTimeframe(safeSymbol, safeInterval)]);
   const candles = advanced.futures.candles.length >= 20 ? advanced.futures.candles : advanced.spot.candles;
   const technical = analyzeTechnical(candles, advanced.spot.orderBook.bids, advanced.spot.orderBook.asks);
   const chartPatterns = analyzeChartPatterns(candles);
-  const signal = buildSignal(advanced, technical);
+  const signal = applyChartVision(buildSignal(advanced, technical), chartVision);
   const forecast = buildForecast(advanced, technical);
   const risk = assessRisk(advanced, technical, signal);
   const scenarios = buildScenarios(advanced, technical, signal, forecast);
@@ -117,6 +117,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     invalidation: invalidation.reasons[0] ?? signal.invalidation,
   };
   const decisionTrace = buildDecisionTrace({ signal: finalSignal, consensus, analysts, confidenceGate, invalidation });
+  if (chartVision?.direction && chartVision.direction !== 'UNKNOWN') warnings.push(`Chart vision integrated: ${chartVision.direction} (${Math.round(Number(chartVision.confidence)||0)}% confidence).`);
   const startPrice = advanced.futures.price ?? advanced.spot.price;
   const forecastAt = new Date().toISOString();
   if(startPrice!==null&&Number.isFinite(startPrice)&&startPrice>0&&forecast.bias!=='UNAVAILABLE'){
@@ -127,7 +128,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
-export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
+export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null,chartVision?:ChartVisionContext|null){
   const safeSymbol=String(symbol).toUpperCase().replace(/[^A-Z0-9]/g,'')||'BTCUSDT';
   const safeInterval=normalizeInterval(interval);
   const chart=normalizeChartContext(chartInput,safeSymbol,safeInterval) ?? { source:'browser', symbol:safeSymbol, interval:safeInterval, pagePrice:null, observedAt:new Date().toISOString(), extraction:'none', quality:'none', ageMs:0 };
@@ -136,7 +137,7 @@ export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chart
   if(cached&&Date.now()-cached.at<CYCLE_CACHE_TTL_MS){return {...cached.result,cycleId:`${safeSymbol}-cached-${cached.at}`,generatedAt:new Date(cached.result.generatedAt).toISOString(),chartContext:chart};}
   const pending=cycleInFlight.get(key);
   if(pending){const result=await pending;return {...result,cycleId:`${safeSymbol}-shared-${Date.now()}`,generatedAt:new Date().toISOString(),chartContext:chart};}
-  const promise=runCycleInternal(safeSymbol,safeInterval,chart).then(result=>{cycleCache.set(key,{at:Date.now(),result});if(cycleCache.size>24){const oldest=[...cycleCache.entries()].sort((a,b)=>a[1].at-b[1].at)[0];if(oldest)cycleCache.delete(oldest[0]);}return result;}).finally(()=>cycleInFlight.delete(key));
+  const promise=runCycleInternal(safeSymbol,safeInterval,chart,chartVision).then(result=>{cycleCache.set(key,{at:Date.now(),result});if(cycleCache.size>24){const oldest=[...cycleCache.entries()].sort((a,b)=>a[1].at-b[1].at)[0];if(oldest)cycleCache.delete(oldest[0]);}return result;}).finally(()=>cycleInFlight.delete(key));
   cycleInFlight.set(key,promise);
   return promise;
 }
