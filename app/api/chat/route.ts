@@ -21,7 +21,7 @@ function retryDelay(response: Response) {
   return 1500 + Math.floor(Math.random() * 500);
 }
 
-async function callProvider(apiKey: string, model: string, prompt: string) {
+async function callProvider(apiKey: string, model: string, prompt: string, imageData?: string) {
   let detail = '', status = 502;
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: Response;
@@ -29,7 +29,7 @@ async function callProvider(apiKey: string, model: string, prompt: string) {
       response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, input: prompt, max_output_tokens: 1000 }),
+        body: JSON.stringify({ model, input: imageData ? [{ role: 'user', content: [{ type: 'input_text', text: prompt }, { type: 'input_image', image_url: imageData }] }] : prompt, max_output_tokens: 1400 }),
         cache: 'no-store',
         signal: AbortSignal.timeout(25000),
       });
@@ -75,7 +75,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = consumeRateLimit(request, 'ai-chat', 12);
   if (!guard.allowed) return jsonError('Too many AI requests. Please retry shortly.', 429, undefined, { retryAfterMs: guard.retryAfter * 1000 });
-  if (tooLarge(request, 48_000)) return jsonError('Request payload is too large.', 413);
+  if (tooLarge(request, 2_500_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return jsonError('AI chat is not configured on the server.', 503);
@@ -87,6 +87,8 @@ export async function POST(request: NextRequest) {
     const extensionContext = safeText(body?.extensionContext, 12000);
     const extensionEnabled = body?.extensionEnabled === true;
     const toolContext = body?.toolContext || {};
+    const imageData = typeof body?.imageData === 'string' && /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/.test(body.imageData) ? body.imageData : '';
+    const imageAttached = Boolean(imageData);
     if (!message) return jsonError('Message is required.', 400);
 
     const symbol = safeText(body?.symbol || context.match(/\"symbol\"\s*:\s*\"([A-Z0-9]+)\"/)?.[1] || 'BTCUSDT', 20);
@@ -115,7 +117,7 @@ export async function POST(request: NextRequest) {
       chartData = { symbol, interval, dataQuality: 'unavailable' };
     }
 
-    const prompt = `You are DRO, a fast live market-intelligence assistant. Answer the user's actual question first, then give only the market evidence needed. Use only supplied live data for market facts. Never invent prices, candles, news, indicators or certainty. Separate OBSERVED data from INTERPRETATION. If data is stale/missing, say so. Do not promise profit or claim guaranteed outcomes.\n\nLIVE CORE CONTEXT:\n${context}\n\nDRO TOOL STATE:\n${JSON.stringify(toolContext)}\n\nLIVE MARKET/CHART DATA:\n${JSON.stringify(chartData)}\n\nBROWSER EXTENSION (${extensionEnabled ? 'ACTIVE' : 'OFF'}):\n${extensionEnabled ? extensionContext || 'No fresh extension snapshot.' : 'Ignore extension data.'}\n\nUSER:\n${message}`;
+    const prompt = `You are DRO, the final market decision layer. Analyze any attached trading chart image for visible price action, structure, indicators and annotations without inventing unreadable values. Combine image evidence with live market data and the 33-specialist intelligence context. If evidence conflicts or quality is weak, use NO TRADE. Never guarantee profit. Return a concise explanation followed by exactly one line beginning FINAL_TRADE_PLAN_JSON: with valid JSON keys signal (LONG|SHORT|NO TRADE), confidence (0-100), entry, stopLoss, takeProfit, rr, maxOpenMinutes, closeBy (ISO timestamp or null), invalidation, reason. For LONG/SHORT, entry/SL/TP must be numeric; for NO TRADE they may be null. maxOpenMinutes is a maximum planned holding time, not a guarantee.\n\nLIVE CORE CONTEXT:\n${context}\n\nDRO TOOL STATE:\n${JSON.stringify(toolContext)}\n\nCHART IMAGE ATTACHED: ${imageAttached ? 'YES — inspect it carefully' : 'NO'}\n\nLIVE MARKET/CHART DATA:\n${JSON.stringify(chartData)}\n\nBROWSER EXTENSION (${extensionEnabled ? 'ACTIVE' : 'OFF'}):\n${extensionEnabled ? extensionContext || 'No fresh extension snapshot.' : 'Ignore extension data.'}\n\nUSER:\n${message}`;
 
     const key = `${MODEL}|${extensionEnabled ? extensionContext : ''}|${context}|${JSON.stringify(chartData)}|${message}`.slice(0, 50000);
     const existing = inFlight.get(key);
@@ -125,10 +127,10 @@ export async function POST(request: NextRequest) {
     }
 
     const work = (async () => {
-      let result = await callProvider(apiKey, MODEL, prompt);
+      let result = await callProvider(apiKey, MODEL, prompt, imageData);
       const transientFailure = [429, 500, 502, 503, 504].includes(result.status);
       if (!result.ok && transientFailure && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
-        result = await callProvider(apiKey, FALLBACK_MODEL, prompt);
+        result = await callProvider(apiKey, FALLBACK_MODEL, prompt, imageData);
       }
       if (!result.ok) {
         const rate = result.status === 429;
@@ -143,7 +145,7 @@ export async function POST(request: NextRequest) {
           },
         };
       }
-      return { status: 200, body: { ok: true, text: result.text, model: result.model, extensionEnabled, chartEnabled: Boolean(toolContext.chart), generatedAt: new Date().toISOString() } };
+      return { status: 200, body: (() => { const match = result.text.match(/FINAL_TRADE_PLAN_JSON:\s*(\{.*\})/s); let tradePlan: any = null; if (match) { try { tradePlan = JSON.parse(match[1]); } catch {} } return { ok: true, text: result.text.replace(/\n?FINAL_TRADE_PLAN_JSON:\s*\{.*\}\s*$/s, '').trim(), tradePlan, imageAttached, model: result.model, extensionEnabled, chartEnabled: Boolean(toolContext.chart), generatedAt: new Date().toISOString() }; })() };
     })();
     inFlight.set(key, work);
     try {
