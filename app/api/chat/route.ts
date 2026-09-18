@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdvancedMarketData, type AdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
+import { getUserAIKey } from '@/lib/user-ai-key';
 
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
@@ -75,8 +76,11 @@ async function getLive(symbol: string, interval: string) {
   return data;
 }
 
-export async function GET() {
-  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured: Boolean(process.env.OPENAI_API_KEY), model: MODEL, fallbackConfigured: Boolean(process.env.OPENAI_FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
+export async function GET(request: NextRequest) {
+  let userKey: string | null = null;
+  try { userKey = await getUserAIKey(); } catch {}
+  const configured = Boolean(userKey || process.env.OPENAI_API_KEY);
+  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured, keySource: userKey ? 'user' : process.env.OPENAI_API_KEY ? 'server' : 'none', model: MODEL, fallbackConfigured: Boolean(process.env.OPENAI_FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: NextRequest) {
@@ -84,8 +88,10 @@ export async function POST(request: NextRequest) {
   if (!guard.allowed) return jsonError('Too many AI requests. Please retry shortly.', 429, undefined, { retryAfterMs: guard.retryAfter * 1000 });
   if (tooLarge(request, 2_500_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return jsonError('AI chat is not configured on the server.', 503);
+    let apiKey: string | null = null;
+    try { apiKey = await getUserAIKey(); } catch {}
+    apiKey = apiKey || process.env.OPENAI_API_KEY || null;
+    if (!apiKey) return jsonError('No AI key is configured. Open Settings → AI Provider Key and save your own key.', 503);
     let body: any;
     try { body = await request.json(); } catch { return jsonError('Invalid JSON request.', 400); }
 
