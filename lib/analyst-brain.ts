@@ -2,7 +2,7 @@ import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
 import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
-import { buildMemoryContext, initializePersistentMemory, rememberAnalystOpinions } from './analyst-memory';
+import { buildMemoryContext, initializePersistentMemory, rememberAnalystOpinions, getAdaptiveAnalystWeight } from './analyst-memory';
 
 export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
@@ -84,8 +84,12 @@ export function buildDecisionAudit(opinions:AnalystOpinion[], scenarios?:{domina
 
 export function synthesizeOpinions(opinions:AnalystOpinion[]){
   const usable=opinions.filter(x=>x.id!=='critic'&&x.id!=='verifier');
-  const weighted=usable.reduce((s,x)=>s+x.score*x.confidence/100,0), weight=usable.reduce((s,x)=>s+x.confidence/100,0)||1;
-  const score=weighted/weight; const long=usable.filter(x=>x.direction==='LONG').length, short=usable.filter(x=>x.direction==='SHORT').length;
+  const weighted=usable.reduce((s,x)=>s+x.score*(x.confidence/100)*getAdaptiveAnalystWeight(x.id),0);
+  const weight=usable.reduce((s,x)=>s+(x.confidence/100)*getAdaptiveAnalystWeight(x.id),0)||1;
+  const score=weighted/weight;
+  const long=usable.filter(x=>x.direction==='LONG').length, short=usable.filter(x=>x.direction==='SHORT').length;
   const agreement=Math.round(Math.max(long,short)/Math.max(1,usable.length)*100);
-  return {direction:score>=25?'LONG':score<=-25?'SHORT':'NEUTRAL',score:Math.round(score),confidence:Math.round(Math.min(96,Math.abs(score)*0.55+agreement*0.45)),agreement,long,short,dissent:usable.filter(x=>Math.abs(x.score-score)>45).sort((a,b)=>b.confidence-a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence}))};
+  const reliability=usable.length?usable.reduce((s,x)=>s+getAdaptiveAnalystWeight(x.id),0)/usable.length:1;
+  const calibrated=agreement*0.35+Math.abs(score)*0.55+Math.max(0,Math.min(100,(reliability-0.55)/0.9*100))*0.10;
+  return {direction:score>=25?'LONG':score<=-25?'SHORT':'NEUTRAL',score:Math.round(score),confidence:Math.round(Math.min(96,calibrated)),agreement,long,short,reliability:Number(reliability.toFixed(3)),dissent:usable.filter(x=>Math.abs(x.score-score)>45).sort((a,b)=>b.confidence-a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence,weight:getAdaptiveAnalystWeight(x.id)}))};
 }
