@@ -3,11 +3,10 @@ import { clearUserAIKey, getUserAIKey, maskAIKey, saveUserAIKey } from '@/lib/us
 
 export const dynamic = 'force-dynamic';
 
-async function testKey(apiKey: string, model = 'gpt-5.6-luna') {
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, input: 'Reply with exactly: DRO_KEY_OK', max_output_tokens: 20 }),
+async function testKey(apiKey: string) {
+  const response = await fetch('https://api.openai.com/v1/models', {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',
     signal: AbortSignal.timeout(15000),
   });
