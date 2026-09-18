@@ -74,6 +74,22 @@ export function buildSignal(data: AdvancedMarketData, technical: TechnicalAnalys
   if (finite(imbalance)) { if (imbalance > 0.12) { score += 16; evidence.push(`Order-book imbalance favors bids (${imbalance.toFixed(2)}).`); } else if (imbalance < -0.12) { score -= 16; evidence.push(`Order-book imbalance favors asks (${imbalance.toFixed(2)}).`); } }
   if (finite(funding)) { if (funding > 0.0008) { score -= 6; conflicts.push('Funding is elevated, reducing long setup quality.'); } else if (funding < -0.0008) { score += 6; evidence.push('Negative funding provides a modest contrarian bullish input.'); } }
   if (oi !== null) evidence.push('Open interest is available for derivatives context.');
+  const flowTotal = data.microstructure.buyNotional + data.microstructure.sellNotional;
+  const flowRatio = flowTotal > 0 ? data.microstructure.deltaNotional / flowTotal : null;
+  if (finite(flowRatio)) {
+    if (flowRatio > 0.10) { score += 10; evidence.push('Aggressive order flow is bid-dominant.'); }
+    else if (flowRatio < -0.10) { score -= 10; evidence.push('Aggressive order flow is ask-dominant.'); }
+  }
+  const liquidationNet = data.microstructure.liquidationNetNotional;
+  if (finite(liquidationNet)) {
+    if (liquidationNet > 0) { score += 4; evidence.push('Recent liquidation flow is buy-side dominant.'); }
+    else if (liquidationNet < 0) { score -= 4; evidence.push('Recent liquidation flow is sell-side dominant.'); }
+  }
+  const basis = data.derivatives.basisPct;
+  if (finite(basis)) {
+    if (basis > 0.5) { score -= 4; conflicts.push('Futures basis is elevated; long crowding risk is higher.'); }
+    else if (basis < -0.5) { score += 4; evidence.push('Negative futures basis supports a contrarian bullish input.'); }
+  }
   if (technical.divergence === 'BULLISH') { score += 8; evidence.push('Bullish RSI divergence detected.'); }
   if (technical.divergence === 'BEARISH') { score -= 8; evidence.push('Bearish RSI divergence detected.'); }
   if (technical.volatility.regime === 'HIGH') { conflicts.push('High volatility increases stop-out risk.'); score = Math.round(score * 0.85); }
