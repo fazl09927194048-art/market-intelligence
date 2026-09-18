@@ -70,7 +70,7 @@ export default function AIPage(){
    <div className="aiPanelHead"><div><small>CENTRAL DECISION AUDIT</small><h2>Why the Engine Reached This State</h2></div><span>{data?.decisionAudit?.coverage||0} SPECIALISTS VERIFIED</span></div>
    <div className="auditGrid">
     <div className="auditStat"><small>LONG / SHORT / NEUTRAL</small><b>{data?.decisionAudit?.directions?.LONG??0} / {data?.decisionAudit?.directions?.SHORT??0} / {data?.decisionAudit?.directions?.NEUTRAL??0}</b></div>
-    <div className="auditStat"><small>CONTRADICTIONS</small><b>{data?.decisionAudit?.contradictions??0}</b></div>
+    <div className="auditStat"><small>CONTRADICTIONS</small><b>{data?.decisionAudit?.contradictions??0}</b></div><div className="auditStat"><small>ADAPTIVE RELIABILITY</small><b>{data?.consensus?.reliability??'—'}</b></div>
     <div className="auditStat"><small>DOMINANT SCENARIO</small><b>{data?.decisionAudit?.dominantScenario?.toUpperCase()||'—'}</b></div>
    </div>
    <div className="auditCols"><div><small>STRONGEST CONTRIBUTORS</small>{(data?.decisionAudit?.strongest||[]).map((x:any)=><div className="auditRow" key={x.id}><span>{x.id}</span><b className={directionClass(x.direction)}>{x.direction}</b><em>{x.score} · {x.confidence}%</em></div>)}</div><div><small>ACTIVE CONFLICTS</small>{(data?.decisionAudit?.conflicts||[]).slice(0,8).map((x:any,i:number)=><p className="bullet" key={i}><b>{x.analyst}</b> — {x.conflict}</p>)}</div></div>
