@@ -4,7 +4,7 @@ import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
 
 type Analyst={id:string;name:string;specialty:string;focus:string[];direction?:string;score?:number;confidence?:number;thesis?:string;independentMethod?:string;conflicts?:string[];evidence?:string[];memory?:{evaluatedPredictions:number;winRate:number|null;currentWeight:number}};
-type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;intelligenceScore?:{score:number;regime:string;manipulationRisk:number};signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[];confidenceGate:any;invalidation:any;decisionTrace:any};
+type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;intelligenceScore?:{score:number;regime:string;manipulationRisk:number};tradePlan?:any;signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[];confidenceGate:any;invalidation:any;decisionTrace:any};
 
 const SYMBOLS=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT'];
 const INTERVALS=['5m','15m','1h','4h','1d'];
@@ -45,14 +45,31 @@ export default function AIPage(){
   {error&&<div className="aiError">{error}</div>}
 
   <section className="aiDecision">
-   <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.direction)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{data?.signal?.invalidation||data?.signal?.reason||'Waiting for a validated intelligence cycle.'}</p></div>
+   <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.signal)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{data?.signal?.invalidation||data?.signal?.reason||'Waiting for a validated intelligence cycle.'}</p></div>
    <div className="decisionStats">
     <div><small>PRICE</small><b>{money(data?.marketData?.spot?.price||data?.signal?.entry)}</b></div>
     <div><small>FORECAST</small><b className={directionClass(data?.forecast?.bias)}>{data?.forecast?.bias||'—'}</b><span>{pct(data?.forecast?.confidence)}</span></div>
     <div><small>CONSENSUS</small><b className={directionClass(data?.consensus?.direction)}>{data?.consensus?.direction||'—'}</b><span>{data?.consensus?.long??0}L · {data?.consensus?.short??0}S · {pct(data?.consensus?.agreement)}</span></div>
     <div><small>RISK</small><b>{data?.risk?.level||'—'}</b><span>{data?.risk?.positionRisk||'—'}</span></div>
    </div>
-   <div className="levels"><span>Entry <b>{money(data?.signal?.entry)}</b></span><span>SL <b>{money(data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.signal?.takeProfit)}</b></span><span>RR <b>{data?.signal?.rr??'—'}</b></span><span>INTELLIGENCE <b>{data?.intelligenceScore?.score??'—'}/100</b></span><span>REGIME <b>{data?.intelligenceScore?.regime?.replaceAll('_',' ')||'—'}</b></span><span>MANIPULATION <b>{data?.intelligenceScore?.manipulationRisk??'—'}%</b></span></div>
+   <div className="levels"><span>Entry <b>{money(data?.signal?.entry)}</b></span><span>SL <b>{money(data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.signal?.takeProfits?.[0])}</b></span><span>RR <b>{data?.signal?.riskReward??'—'}</b></span><span>INTELLIGENCE <b>{data?.intelligenceScore?.score??'—'}/100</b></span><span>REGIME <b>{data?.intelligenceScore?.regime?.replaceAll('_',' ')||'—'}</b></span><span>MANIPULATION <b>{data?.intelligenceScore?.manipulationRisk??'—'}%</b></span></div>
+  </section>
+
+  <section className="aiPanel deepSignalPanel">
+   <div className="aiPanelHead"><div><small>DEEP SCAN RESULT</small><h2>{fa?'سیگنال نهایی اسکن':'FINAL DEEP-SCAN SIGNAL'}</h2></div><span className={directionClass(data?.tradePlan?.side)}>{data?.tradePlan?.status||'—'}</span></div>
+   <div className="deepSignalGrid">
+    <div><small>SIGNAL</small><strong className={directionClass(data?.tradePlan?.side)}>{data?.tradePlan?.side||'NO TRADE'}</strong></div>
+    <div><small>ENTRY</small><b>{money(data?.tradePlan?.entry)}</b></div>
+    <div><small>STOP LOSS</small><b>{money(data?.tradePlan?.stopLoss)}</b></div>
+    <div><small>TAKE PROFIT</small><b>{money(data?.tradePlan?.takeProfit)}</b></div>
+    <div><small>ENTRY TIME</small><b>{data?.tradePlan?.entryAt?new Date(data.tradePlan.entryAt).toLocaleString(): 'WAIT'}</b></div>
+    <div><small>EXIT TIME</small><b>{data?.tradePlan?.exitAt?new Date(data.tradePlan.exitAt).toLocaleString(): 'WAIT'}</b></div>
+    <div><small>R/R</small><b>{data?.tradePlan?.riskReward??'—'}</b></div>
+    <div><small>CONFIDENCE</small><b>{data?.tradePlan?.confidence??0}%</b></div>
+   </div>
+   <p className="deepSignalText">{data?.tradePlan?.analysis||'Run the deep scan to generate the validated result.'}</p>
+   <p className="deepSignalInvalidation"><b>INVALIDATION:</b> {data?.tradePlan?.invalidation||'—'}</p>
+   <small className="deepSignalNote">Model-generated market intelligence; not a guarantee of profit. Revalidate with fresh data before acting.</small>
   </section>
 
   <section className="aiPanel scenarioPanel">
