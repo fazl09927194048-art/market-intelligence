@@ -72,7 +72,11 @@ function buildMarketIntelligenceScore(technical:any,multi:any,risk:any,signal:an
   const mtf=multi?.score??50;
   const newsPenalty=newsImpact?.level==='BREAKING'?20:newsImpact?.level==='HIGH'?10:0;
   const riskPenalty=Math.min(35,Number(risk?.score)||0);
-  const raw=trendScore*.18+momentumScore*.12+flowScore*.20+liquidityScore*.12+Number(mtf)*.18+Number(signal?.confidence||0)*.10+Number(scenarios?.scenarios?.[0]?.probability||50)*.10-newsPenalty*.35-riskPenalty*.15;
+  const scenarioRows=Array.isArray(scenarios?.scenarios)?scenarios.scenarios:[];
+  const dominantId=String(scenarios?.dominant||'').toLowerCase();
+  const dominantScenario=scenarioRows.find((row:any)=>String(row?.id||'').toLowerCase()===dominantId) || [...scenarioRows].sort((a:any,b:any)=>Number(b?.probability||0)-Number(a?.probability||0))[0];
+  const scenarioScore=Number.isFinite(Number(dominantScenario?.probability))?Number(dominantScenario.probability):50;
+  const raw=trendScore*.18+momentumScore*.12+flowScore*.20+liquidityScore*.12+Number(mtf)*.18+Number(signal?.confidence||0)*.10+scenarioScore*.10-newsPenalty*.35-riskPenalty*.15;
   const score=clamp(raw);
   const regime=technical?.volatility?.regime==='HIGH'?'HIGH_VOLATILITY':trend==='UP'?'TREND_UP':trend==='DOWN'?'TREND_DOWN':trend==='SIDEWAYS'?'SIDEWAYS':'UNKNOWN';
   const manipulationRisk=clamp(Math.abs(Number(liquidity)||0)*100+((technical?.volatility?.regime==='HIGH')?35:0)+(Math.abs(Number(advanced?.derivatives?.basisPct)||0)>0.5?20:0));
