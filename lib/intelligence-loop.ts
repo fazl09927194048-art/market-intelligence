@@ -142,6 +142,22 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     riskReward: null,
     invalidation: invalidation.reasons[0] ?? signal.invalidation,
   };
+  const tradeSide = finalSignal.signal === 'LONG' || finalSignal.signal === 'SHORT' ? finalSignal.signal : 'NO TRADE';
+  const entryAllowed = invalidation.canEnter && tradeSide !== 'NO TRADE' && Number.isFinite(Number(finalSignal.entry));
+  const horizonMinutes = Math.max(5, Math.round(horizonMs(safeInterval) / 60000));
+  const entryAt = entryAllowed ? new Date().toISOString() : null;
+  const exitAt = entryAllowed ? new Date(Date.now() + horizonMinutes * 60000).toISOString() : null;
+  const primaryTarget = finalSignal.takeProfits?.[0] ?? null;
+  const tradePlan = {
+    status: entryAllowed ? 'SIGNAL' : 'NO TRADE', side: entryAllowed ? tradeSide : 'NO TRADE', symbol: safeSymbol, interval: safeInterval,
+    entry: entryAllowed ? finalSignal.entry : null, stopLoss: entryAllowed ? finalSignal.stopLoss : null, takeProfit: entryAllowed ? primaryTarget : null,
+    takeProfits: entryAllowed ? finalSignal.takeProfits : [], riskReward: entryAllowed ? finalSignal.riskReward : null, entryAt, exitAt,
+    horizonMinutes: entryAllowed ? horizonMinutes : null, confidence: entryAllowed ? Math.min(gatedConfidence, finalSignal.confidence) : gatedConfidence,
+    invalidation: invalidation.reasons[0] ?? finalSignal.invalidation,
+    analysis: entryAllowed
+      ? 'پس از اسکن عمیق ' + safeSymbol + ' در تایم‌فریم ' + safeInterval + '، موتور تصمیم با ترکیب ساختار قیمت، مومنتوم، جریان معاملات، عمق دفتر سفارش، مشتقات، سناریوها، چندتایم‌فریم و ریسک به ' + tradeSide + ' رسیده است. ورود فقط در قیمت/شرایط فعلی و تا زمانی معتبر است که حد ضرر و شروط ابطال نقض نشده باشند. این خروجی یک برآورد مدل‌محور است و تضمین سود نیست.'
+      : 'اسکن عمیق ' + safeSymbol + ' کامل شد اما همگرایی داده‌ها یا گیت ایمنی برای ورود کافی نیست. موتور فعلاً NO TRADE می‌دهد و منتظر تأیید تازه یا رفع شرط ابطال می‌ماند.',
+  };
   const decisionTrace = buildDecisionTrace({ signal: finalSignal, consensus, analysts, confidenceGate, invalidation });
   if (chartVision?.direction && chartVision.direction !== 'UNKNOWN') warnings.push(`Chart vision integrated: ${chartVision.direction} (${Math.round(Number(chartVision.confidence)||0)}% confidence).`);
   const startPrice = advanced.futures.price ?? advanced.spot.price;
@@ -151,7 +167,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,intelligenceScore,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,intelligenceScore,tradePlan,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null,chartVision?:ChartVisionContext|null){
