@@ -28,7 +28,7 @@ export function recordAnalystOutcome(analystId:string,symbol:string,regime:strin
 function adaptWeight(id:string){const e=records.filter(r=>r.analystId===id&&r.kind==='OUTCOME'&&r.outcome!=='OPEN').slice(-120);if(e.length<20)return;const w=e.filter(r=>r.outcome==='WIN').length;const avg=e.reduce((s,r)=>s+(r.returnPct??0),0)/e.length;const sw=(w+10)/(e.length+20);const performance=clamp((sw-.5)*2+clamp(avg/5,-1,1),-1,1);const reliability=clamp(e.length/50,.35,1);const p=performance*(0.4+0.6*reliability);const previous=ensureWeight(id);const target=clamp(1+p*.45,.55,1.45);weights.set(id,Number(clamp(previous*.7+target*.3,.55,1.45).toFixed(4)));}
 export function evaluateMaturedPredictions(symbol:string,interval:string,currentPrice:number,regime:string){
   if(!Number.isFinite(currentPrice)||currentPrice<=0)return {evaluated:0,skipped:0};
-  const toMs=(value:string)=>{const m=value.match(/^(\\d+)(m|h|d)$/);if(!m)return 3_600_000;const n=Number(m[1]);return n*(m[2]==='m'?60_000:m[2]==='h'?3_600_000:86_400_000);};
+  const toMs=(value:string)=>{const m=value.match(/^(\d+)(m|h|d)$/);if(!m)return 3_600_000;const n=Number(m[1]);return n*(m[2]==='m'?60_000:m[2]==='h'?3_600_000:86_400_000);};
   const now=Date.now(); let evaluated=0,skipped=0;
   for(const p of records.filter(r=>r.kind==='PREDICTION'&&r.symbol===symbol).slice(-500)){
     if(evaluatedPredictionIds.has(p.id)||records.some(r=>r.kind==='OUTCOME'&&r.evidence.includes(`predictionId:${p.id}`))){skipped++;evaluatedPredictionIds.add(p.id);continue;}
