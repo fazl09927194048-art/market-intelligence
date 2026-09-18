@@ -7,7 +7,7 @@ import { assessRisk } from '@/lib/risk-engine';
 import { enrichNews, detectEvents, type NewsItem } from '@/lib/news-intelligence';
 import { assessEventReaction } from '@/lib/event-reaction';
 import { analyzeMultiTimeframe } from '@/lib/multi-timeframe';
-import { runAnalystBrain, synthesizeOpinions } from '@/lib/analyst-brain';
+import { runAnalystBrain, synthesizeOpinions, buildDecisionAudit } from '@/lib/analyst-brain';
 import { normalizeChartContext, normalizeInterval, type ChartContext } from '@/lib/chart-context';
 import { recordForecastSnapshot } from '@/lib/forecast-snapshots';
 import { buildScenarios } from '@/lib/scenario-engine';
@@ -72,6 +72,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const eventReaction = assessEventReaction(assetNews, risk);
   const analysts = await runAnalystBrain(advanced, technical, assetNews);
   const consensus = synthesizeOpinions(analysts);
+  const decisionAudit = buildDecisionAudit(analysts, scenarios);
   const cycleId = `${safeSymbol}-${Date.now()}`;
   const warnings = [...market.warnings, ...advanced.warnings, ...technical.warnings, ...chartPatterns.warnings, ...risk.reasons, ...eventReaction.reasons, ...multiTimeFrame.warnings];
   if (newsImpact.level === 'NONE') warnings.push('All configured news sources returned no validated stories for this cycle.'); else if (newsImpact.sourceCount < 2) warnings.push(`News coverage is currently limited to ${newsImpact.sourceCount} validated source(s).`);
@@ -88,7 +89,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal,forecast,scenarios,analysts,consensus,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal,forecast,scenarios,analysts,consensus,decisionAudit,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
