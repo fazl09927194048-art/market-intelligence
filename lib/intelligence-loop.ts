@@ -10,6 +10,7 @@ import { analyzeMultiTimeframe } from '@/lib/multi-timeframe';
 import { runAnalystBrain, synthesizeOpinions } from '@/lib/analyst-brain';
 import { normalizeChartContext, normalizeInterval, type ChartContext } from '@/lib/chart-context';
 import { recordForecastSnapshot } from '@/lib/forecast-snapshots';
+import { buildScenarios } from '@/lib/scenario-engine';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -63,6 +64,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const signal = buildSignal(advanced, technical);
   const forecast = buildForecast(advanced, technical);
   const risk = assessRisk(advanced, technical, signal);
+  const scenarios = buildScenarios(advanced, technical, signal, forecast);
   const asset = safeSymbol.replace(/USDT$/i, '').toUpperCase();
   const assetNews = news.filter(item => item.assets.includes(asset) || item.assets.length === 0);
   const events = detectEvents(assetNews);
@@ -86,7 +88,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal,forecast,analysts,consensus,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal,forecast,scenarios,analysts,consensus,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
