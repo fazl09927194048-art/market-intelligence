@@ -54,7 +54,7 @@ export default function AIPage(){
    </div>
   </section>
 
-  {error&&<div className="aiError">{error}</div>
+  {error&&<div className="aiError">{error}</div>}
 
   <section className="aiDecision">
    <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.signal)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{safeText(data?.signal?.invalidation)||safeText(data?.signal?.reason)||'Waiting for a validated intelligence cycle.'}</p></div>
