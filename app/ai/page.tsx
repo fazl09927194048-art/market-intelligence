@@ -11,6 +11,8 @@ const INTERVALS=['5m','15m','1h','4h','1d'];
 const pct=(v:any)=>v==null||!Number.isFinite(Number(v))?'—':`${Number(v).toFixed(1)}%`;
 const money=(v:any)=>v==null||!Number.isFinite(Number(v))?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:Number(v)>100?0:2}).format(Number(v));
 const directionClass=(d?:string)=>d==='LONG'||d==='BULLISH'?'up':d==='SHORT'||d==='BEARISH'?'down':'';
+const safeText=(v:any):string=>{if(v==null)return '—';if(typeof v==='string'||typeof v==='number'||typeof v==='boolean')return String(v);if(Array.isArray(v))return v.map(safeText).filter(x=>x!=='—').join(' | ')||'—';try{return JSON.stringify(v)}catch{return '—'}};
+const safeDate=(v:any):string=>{if(!v)return 'WAIT';const d=new Date(v);return Number.isNaN(d.getTime())?'WAIT':d.toLocaleString()};
 
 export default function AIPage(){
  const [symbol,setSymbol]=useState('BTCUSDT'),[interval,setIntervalValue]=useState('15m'),[data,setData]=useState<Intelligence|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[fa,setFa]=useState(false),[filter,setFilter]=useState('ALL'),[query,setQuery]=useState('');
@@ -45,7 +47,7 @@ export default function AIPage(){
   {error&&<div className="aiError">{error}</div>}
 
   <section className="aiDecision">
-   <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.signal)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{data?.signal?.invalidation||data?.signal?.reason||'Waiting for a validated intelligence cycle.'}</p></div>
+   <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.signal)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{safeText(data?.signal?.invalidation)||safeText(data?.signal?.reason)||'Waiting for a validated intelligence cycle.'}</p></div>
    <div className="decisionStats">
     <div><small>PRICE</small><b>{money(data?.marketData?.spot?.price||data?.signal?.entry)}</b></div>
     <div><small>FORECAST</small><b className={directionClass(data?.forecast?.bias)}>{data?.forecast?.bias||'—'}</b><span>{pct(data?.forecast?.confidence)}</span></div>
@@ -62,13 +64,13 @@ export default function AIPage(){
     <div><small>ENTRY</small><b>{money(data?.tradePlan?.entry)}</b></div>
     <div><small>STOP LOSS</small><b>{money(data?.tradePlan?.stopLoss)}</b></div>
     <div><small>TAKE PROFIT</small><b>{money(data?.tradePlan?.takeProfit)}</b></div>
-    <div><small>ENTRY TIME</small><b>{data?.tradePlan?.entryAt?new Date(data.tradePlan.entryAt).toLocaleString(): 'WAIT'}</b></div>
-    <div><small>EXIT TIME</small><b>{data?.tradePlan?.exitAt?new Date(data.tradePlan.exitAt).toLocaleString(): 'WAIT'}</b></div>
+    <div><small>ENTRY TIME</small><b>{safeDate(data?.tradePlan?.entryAt)}</b></div>
+    <div><small>EXIT TIME</small><b>{safeDate(data?.tradePlan?.exitAt)}</b></div>
     <div><small>R/R</small><b>{data?.tradePlan?.riskReward??'—'}</b></div>
     <div><small>CONFIDENCE</small><b>{data?.tradePlan?.confidence??0}%</b></div>
    </div>
-   <p className="deepSignalText">{data?.tradePlan?.analysis||'Run the deep scan to generate the validated result.'}</p>
-   <p className="deepSignalInvalidation"><b>INVALIDATION:</b> {data?.tradePlan?.invalidation||'—'}</p>
+   <p className="deepSignalText">{safeText(data?.tradePlan?.analysis)||'Run the deep scan to generate the validated result.'}</p>
+   <p className="deepSignalInvalidation"><b>INVALIDATION:</b> {safeText(data?.tradePlan?.invalidation)}</p>
    <small className="deepSignalNote">Model-generated market intelligence; not a guarantee of profit. Revalidate with fresh data before acting.</small>
   </section>
 
