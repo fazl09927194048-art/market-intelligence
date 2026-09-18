@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     const prompt = `You are DRO, the final market decision layer. Analyze any attached trading chart image for visible price action, structure, indicators and annotations without inventing unreadable values. Combine image evidence with live market data and the 33-specialist intelligence context. If evidence conflicts or quality is weak, use NO TRADE. Never guarantee profit. Return a concise explanation followed by exactly one line beginning FINAL_TRADE_PLAN_JSON: with valid JSON keys signal (LONG|SHORT|NO TRADE), confidence (0-100), entry, stopLoss, takeProfit, rr, maxOpenMinutes, closeBy (ISO timestamp or null), invalidation, reason. For LONG/SHORT, entry/SL/TP must be numeric; for NO TRADE they may be null. maxOpenMinutes is a maximum planned holding time, not a guarantee.\n\nLIVE CORE CONTEXT:\n${context}\n\nDRO TOOL STATE:\n${JSON.stringify(toolContext)}\n\nCHART IMAGE ATTACHED: ${imageAttached ? 'YES — inspect it carefully' : 'NO'}\n\nLIVE MARKET/CHART DATA:\n${JSON.stringify(chartData)}\n\nBROWSER EXTENSION (${extensionEnabled ? 'ACTIVE' : 'OFF'}):\n${extensionEnabled ? extensionContext || 'No fresh extension snapshot.' : 'Ignore extension data.'}\n\nUSER:\n${message}`;
 
-    const key = `${MODEL}|${extensionEnabled ? extensionContext : ''}|${context}|${JSON.stringify(chartData)}|${message}`.slice(0, 50000);
+    const key = `${MODEL}|${extensionEnabled ? extensionContext : ''}|${context}|${JSON.stringify(chartData)}|${imageData.slice(0, 64)}|${message}`.slice(0, 50000);
     const existing = inFlight.get(key);
     if (existing) {
       const result = await existing;
