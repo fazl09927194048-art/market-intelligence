@@ -42,11 +42,19 @@ export default function AIPage(){
    <div className="aiControls">
     <select value={symbol} onChange={e=>setSymbol(e.currentTarget.value)}>{SYMBOLS.map(x=><option key={x}>{x}</option>)}</select>
     <select value={interval} onChange={e=>setIntervalValue(e.currentTarget.value)}>{INTERVALS.map(x=><option key={x}>{x}</option>)}</select>
-    <button className="deep" onClick={()=>void refresh()} disabled={loading||imageLoading}>{loading?'SCANNING…':fa?'اسکن کامل':'FULL SCAN'}</button><button type="button" className="imageScanBtn" title="Upload trading chart image" onClick={()=>imageInputRef.current?.click()}>📷 {imageName?(fa?'تغییر تصویر':'CHANGE CHART IMAGE'):(fa?'افزودن تصویر نمودار':'ADD CHART IMAGE')}</button><input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={async e=>{const file=e.currentTarget.files?.[0];if(!file)return;try{setImageData(await prepareImage(file));setImageName(file.name);setImageResult(null);setError('')}catch(err){setError(err instanceof Error?err.message:'Image error')}finally{e.currentTarget.value=''}}}/>{imageData&&<button className="imageDeep" onClick={()=>void scanImage()} disabled={imageLoading}>{imageLoading?(fa?'در حال اسکن تصویر…':'SCANNING IMAGE…') :(fa?'اسکن عمیق تصویر':'DEEP SCAN IMAGE')}</button>}
+    <button className="deep" onClick={()=>void refresh()} disabled={loading||imageLoading}>{loading?'SCANNING…':fa?'اسکن کامل':'FULL SCAN'}</button><button type="button" className="imageScanBtn" title="Upload trading chart image" onClick={()=>imageInputRef.current?.click()}>📷 {imageName?(fa?'تغییر تصویر':'CHANGE CHART IMAGE'):(fa?'افزودن تصویر نمودار':'ADD CHART IMAGE')}</button>{imageData&&<button className="imageDeep" onClick={()=>void scanImage()} disabled={imageLoading}>{imageLoading?(fa?'در حال اسکن تصویر…':'SCANNING IMAGE…') :(fa?'اسکن عمیق تصویر':'DEEP SCAN IMAGE')}</button>}
+   </div>
+   <div className="chartUploadBox">
+    <div className="chartUploadTitle"><span>📷 CHART IMAGE ANALYSIS</span><small>Upload a trading chart for visual AI analysis</small></div>
+    <div className="chartUploadActions">
+     <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{const file=e.currentTarget.files?.[0];if(!file)return;try{setImageData(await prepareImage(file));setImageName(file.name);setImageResult(null);setError('')}catch(err){setError(err instanceof Error?err.message:'Image error')}finally{e.currentTarget.value=''}}}/>
+     {imageData&&<button type="button" className="imageDeep" onClick={()=>void scanImage()} disabled={imageLoading}>{imageLoading?'SCANNING IMAGE…':'🔎 DEEP SCAN UPLOADED CHART'}</button>}
+    </div>
+    {imageName&&<div className="chartUploadReady">✓ {imageName} · IMAGE READY</div>}
    </div>
   </section>
 
-  {error&&<div className="aiError">{error}</div>}
+  {error&&<div className="aiError">{error}</div>
 
   <section className="aiDecision">
    <div className="decisionMain"><small>MAIN DECISION ENGINE</small><div><strong className={directionClass(data?.signal?.signal)}>{data?.signal?.direction||'NO TRADE'}</strong><b>{pct(data?.signal?.confidence)}</b></div><p>{safeText(data?.signal?.invalidation)||safeText(data?.signal?.reason)||'Waiting for a validated intelligence cycle.'}</p></div>
