@@ -68,6 +68,12 @@ export default function AIPage(){
    {(data?.confidenceGate?.factors||[]).map((x:any,i:number)=><p className="bullet" key={i}>{x}</p>)}
   </section>
 
+  <section className="aiPanel auditPanel invalidationPanel">
+   <div className="aiPanelHead"><div><small>INVALIDATION ENGINE</small><h2>Decision Safety Gate</h2></div><span className={data?.invalidation?.status==='NO_TRADE'?'down':data?.invalidation?.status==='CAUTION'?'warn':'up'}>{data?.invalidation?.status||'—'}</span></div>
+   <div className="invalidationSummary"><div><small>FINAL STATE</small><b className={directionClass(data?.signal?.signal)}>{data?.signal?.signal||'—'}</b></div><div><small>ENTRY ALLOWED</small><b>{data?.invalidation?.canEnter?'YES':'NO'}</b></div><div><small>HARD</small><b>{data?.invalidation?.hardInvalidations?.length||0}</b></div><div><small>SOFT</small><b>{data?.invalidation?.softInvalidations?.length||0}</b></div></div>
+   {(data?.invalidation?.activeRules||[]).map((r:any)=><div className="invalidationRow" key={r.code}><div><b>{r.code}</b><span className={r.severity==='HARD_INVALIDATION'?'down':'warn'}>{r.severity}</span></div><p>{r.reason}</p><small>{r.observableCondition}</small></div>)}
+  </section>
+
   <section className="aiPanel auditPanel">
    <div className="aiPanelHead"><div><small>ANALYST FAMILY WEIGHTS</small><h2>De-correlated Evidence Map</h2></div><span>WEIGHTED IMPACT</span></div>
    <div className="familyGrid">{(data?.decisionAudit?.familyImpact||[]).map((x:any)=><div className="familyCard" key={x.family}><small>{x.family}</small><b>{x.signed>0?'+':''}{x.signed}</b><span>{x.analysts} specialists · impact {x.impact}</span></div>)}</div>
