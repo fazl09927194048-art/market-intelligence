@@ -72,12 +72,14 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
 
 export function buildDecisionAudit(opinions:AnalystOpinion[], scenarios?:{dominant:string;scenarios?:Array<{id:string;probability:number}>}){
   const usable=opinions.filter(x=>x.id!=='critic'&&x.id!=='verifier');
+  const families:Record<string,string[]>={trend:['trend','structure','support','resistance'],momentum:['momentum','rsi'],derivatives:['futures','funding','oi','liquidation','orderflow'],flow:['volume','liquidity'],patterns:['pattern','breakout','fibonacci'],forecast:['forecast','volatility'],news:['news','event','sentiment'],macro:['macro','correlation'],assets:['btc','eth','altcoin'],execution:['scalp','swing','mean-reversion']};
+  const familyImpact=Object.entries(families).map(([family,ids])=>{const xs=usable.filter(x=>ids.includes(x.id));const weight=xs.reduce((s,x)=>s+Math.abs(x.score)*(x.confidence/100)*(x.memory?.currentWeight??1),0);const signed=xs.reduce((s,x)=>s+x.score*(x.confidence/100)*(x.memory?.currentWeight??1),0);return {family,analysts:xs.length,impact:Number(weight.toFixed(2)),signed:Number(signed.toFixed(2))};}).filter(x=>x.analysts);
   const evidence=usable.flatMap(x=>x.evidence.map(e=>({analyst:x.id,evidence:e}))).slice(0,60);
   const conflicts=usable.flatMap(x=>x.conflicts.map(conflict=>({analyst:x.id,conflict}))).slice(0,40);
   const byDirection={LONG:usable.filter(x=>x.direction==='LONG').length,SHORT:usable.filter(x=>x.direction==='SHORT').length,NEUTRAL:usable.filter(x=>x.direction==='NEUTRAL').length};
   const strongest=[...usable].sort((a,b)=>Math.abs(b.score)*b.confidence-Math.abs(a.score)*a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence,weight:x.memory?.currentWeight??1}));
   const contradictions=usable.filter(x=>x.direction!=='NEUTRAL').filter(x=>usable.some(y=>y.direction!==x.direction&&y.direction!=='NEUTRAL')).length;
-  return {coverage:usable.length,directions:byDirection,strongest,contradictions,evidence,conflicts,dominantScenario:scenarios?.dominant??null,scenarioProbabilities:scenarios?.scenarios?.map(s=>({id:s.id,probability:s.probability}))??[]};
+  return {coverage:usable.length,directions:byDirection,familyImpact,strongest,contradictions,evidence,conflicts,dominantScenario:scenarios?.dominant??null,scenarioProbabilities:scenarios?.scenarios?.map(s=>({id:s.id,probability:s.probability}))??[]};
 }
 
 export function synthesizeOpinions(opinions:AnalystOpinion[]){
