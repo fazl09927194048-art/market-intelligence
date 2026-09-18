@@ -24,6 +24,8 @@ const ASSETS = [
   ['ETH','Ethereum','ethereum'],
   ['SOL','Solana','solana'],
   ['BNB','BNB','binancecoin'],
+  ['XRP','XRP','ripple'],
+  ['ADA','Cardano','cardano'],
 ] as const;
 
 const REQUEST_TIMEOUT_MS = 7000;
