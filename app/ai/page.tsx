@@ -26,7 +26,7 @@ export default function AIPage(){
   <header className="aiPageTop">
    <a className="brand" href="/">MARKET<span>/</span>INTEL</a>
    <div className="aiPageTitle"><small>FLI ADVANCED MARKET INTELLIGENCE AI</small><strong>{fa?'مرکز هوش مصنوعی بازار':'AI MARKET COMMAND CENTER'}</strong></div>
-   <div className="controls"><button className="refresh" onClick={()=>setFa(v=>!v)}>{fa?'EN':'FA'}</button><a className="refresh" href="/">Dashboard</a></div>
+   <div className="controls"><button className="refresh" onClick={()=>setFa(v=>!v)}>{fa?'EN':'FA'}</button><a className="refresh" href="/">Dashboard</a><a className="refresh" href="/settings">Settings</a></div>
   </header>
 
   <section className="aiHero">
