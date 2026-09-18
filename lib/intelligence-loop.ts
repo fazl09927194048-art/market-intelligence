@@ -12,6 +12,7 @@ import { normalizeChartContext, normalizeInterval, type ChartContext } from '@/l
 import { recordForecastSnapshot } from '@/lib/forecast-snapshots';
 import { buildScenarios } from '@/lib/scenario-engine';
 import { evaluateInvalidation } from '@/lib/invalidation-engine';
+import { buildDecisionTrace } from '@/lib/decision-trace';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -109,6 +110,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     riskReward: null,
     invalidation: invalidation.reasons[0] ?? signal.invalidation,
   };
+  const decisionTrace = buildDecisionTrace({ signal: finalSignal, consensus, analysts, confidenceGate, invalidation });
   const startPrice = advanced.futures.price ?? advanced.spot.price;
   const forecastAt = new Date().toISOString();
   if(startPrice!==null&&Number.isFinite(startPrice)&&startPrice>0&&forecast.bias!=='UNAVAILABLE'){
@@ -116,7 +118,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
