@@ -104,3 +104,25 @@ export function buildForecast(data: AdvancedMarketData, technical: TechnicalAnal
   const multiplier = technical.volatility.regime === 'HIGH' ? 2.5 : 1.8;
   return { bias, horizon:'next 4-12 candles', confidence:clamp(Math.round(technical.confidence * 0.8 + Math.abs((technical.indicators.rsi14 ?? 50)-50)*0.3),0,90), expectedLow:price-atr*multiplier, expectedHigh:price+atr*multiplier, evidence:[`Trend: ${technical.structure.trend}.`,`Volatility regime: ${technical.volatility.regime}.`,`RSI14: ${technical.indicators.rsi14?.toFixed(1) ?? 'n/a'}.`], risks:['Forecast range is scenario-based, not a guaranteed price target.','Sudden news or liquidity changes can invalidate the setup.'], invalidation:'A confirmed structure reversal invalidates the directional bias.' };
 }
+
+export type ChartVisionContext = {
+  direction?: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'UNKNOWN';
+  confidence?: number;
+  trend?: string;
+  support?: number[];
+  resistance?: number[];
+  patterns?: string[];
+  invalidation?: string | null;
+  evidence?: string[];
+};
+
+export function applyChartVision(signal: SignalResult, vision?: ChartVisionContext | null): SignalResult {
+  if (!vision || vision.direction === 'UNKNOWN' || !Number.isFinite(Number(vision.confidence))) return signal;
+  const vc = clamp(Number(vision.confidence), 0, 100);
+  if (vc < 55) return {...signal, conflicts:[...signal.conflicts,'Chart-image evidence confidence is below the integration threshold.']};
+  const dir = vision.direction === 'BULLISH' ? 'LONG' : vision.direction === 'BEARISH' ? 'SHORT' : 'NEUTRAL';
+  const evidence = [...signal.evidence, ...(vision.evidence ?? []).slice(0,4).map(x=>'Chart vision: '+x)];
+  if (dir === signal.signal) return {...signal, confidence:clamp(Math.round(signal.confidence*0.7+vc*0.3),0,95), evidence, invalidation:vision.invalidation || signal.invalidation};
+  if ((signal.signal === 'LONG' || signal.signal === 'SHORT') && (dir === 'LONG' || dir === 'SHORT')) return {...signal, signal:'NO TRADE', confidence:Math.min(signal.confidence,Math.round(vc*0.6)), entry:signal.entry, stopLoss:null, takeProfits:[], riskReward:null, conflicts:[...signal.conflicts,'Chart-image direction conflicts with the live deterministic signal.'], evidence, invalidation:vision.invalidation || 'Wait for price action and chart evidence to realign.'};
+  return {...signal, confidence:Math.min(signal.confidence,Math.round(vc*0.75)), evidence, conflicts:[...signal.conflicts,'Chart-image context is not directional enough for confirmation.']};
+}
