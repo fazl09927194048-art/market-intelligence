@@ -13,6 +13,7 @@ import { recordForecastSnapshot } from '@/lib/forecast-snapshots';
 import { buildScenarios } from '@/lib/scenario-engine';
 import { evaluateInvalidation } from '@/lib/invalidation-engine';
 import { buildDecisionTrace } from '@/lib/decision-trace';
+import { initializePersistentMemory, rememberAnalystOpinions, evaluateMaturedPredictions } from '@/lib/analyst-memory';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -59,6 +60,7 @@ function horizonMs(interval: string) { const m = interval.match(/^(\d+)(m|h|d|w|
 
 const cycleInFlight=new Map<string,ReturnType<typeof runCycleInternal>>();
 async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:ChartContext){
+  await initializePersistentMemory();
   const [market, advanced, news, multiTimeFrame] = await Promise.all([getMarkets(), getAdvancedMarketData(safeSymbol, safeInterval, 200), loadNews(), analyzeMultiTimeframe(safeSymbol, safeInterval)]);
   const candles = advanced.futures.candles.length >= 20 ? advanced.futures.candles : advanced.spot.candles;
   const technical = analyzeTechnical(candles, advanced.spot.orderBook.bids, advanced.spot.orderBook.asks);
@@ -73,6 +75,10 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const newsImpact = summarizeNewsImpact(assetNews, events);
   const eventReaction = assessEventReaction(assetNews, risk);
   const analysts = await runAnalystBrain(advanced, technical, assetNews);
+  const currentPrice = advanced.futures.price ?? advanced.spot.price;
+  const regime = String((technical as any).volatilityRegime ?? (technical as any).regime ?? 'UNKNOWN');
+  rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined);
+  const outcomeLearning = currentPrice && Number.isFinite(currentPrice) ? evaluateMaturedPredictions(safeSymbol, safeInterval, currentPrice, regime) : { evaluated: 0, skipped: 0 };
   const consensus = synthesizeOpinions(analysts);
   const decisionAudit = buildDecisionAudit(analysts, scenarios);
   const cycleId = `${safeSymbol}-${Date.now()}`;
@@ -118,7 +124,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
