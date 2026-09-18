@@ -4,7 +4,7 @@ import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
 
 type Analyst={id:string;name:string;specialty:string;focus:string[];direction?:string;score?:number;confidence?:number;thesis?:string;independentMethod?:string;conflicts?:string[];evidence?:string[];memory?:{evaluatedPredictions:number;winRate:number|null;currentWeight:number}};
-type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[];confidenceGate:any;invalidation:any;decisionTrace:any};
+type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;intelligenceScore?:{score:number;regime:string;manipulationRisk:number};signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[];confidenceGate:any;invalidation:any;decisionTrace:any};
 
 const SYMBOLS=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT'];
 const INTERVALS=['5m','15m','1h','4h','1d'];
@@ -52,7 +52,7 @@ export default function AIPage(){
     <div><small>CONSENSUS</small><b className={directionClass(data?.consensus?.direction)}>{data?.consensus?.direction||'—'}</b><span>{data?.consensus?.long??0}L · {data?.consensus?.short??0}S · {pct(data?.consensus?.agreement)}</span></div>
     <div><small>RISK</small><b>{data?.risk?.level||'—'}</b><span>{data?.risk?.positionRisk||'—'}</span></div>
    </div>
-   <div className="levels"><span>Entry <b>{money(data?.signal?.entry)}</b></span><span>SL <b>{money(data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.signal?.takeProfit)}</b></span><span>RR <b>{data?.signal?.rr??'—'}</b></span></div>
+   <div className="levels"><span>Entry <b>{money(data?.signal?.entry)}</b></span><span>SL <b>{money(data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.signal?.takeProfit)}</b></span><span>RR <b>{data?.signal?.rr??'—'}</b></span><span>INTELLIGENCE <b>{data?.intelligenceScore?.score??'—'}/100</b></span><span>REGIME <b>{data?.intelligenceScore?.regime?.replaceAll('_',' ')||'—'}</b></span><span>MANIPULATION <b>{data?.intelligenceScore?.manipulationRisk??'—'}%</b></span></div>
   </section>
 
   <section className="aiPanel scenarioPanel">
