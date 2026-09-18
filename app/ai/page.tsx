@@ -59,6 +59,14 @@ export default function AIPage(){
    <div className="aiPanelHead"><div><small>SCENARIO ENGINE</small><h2>Three-Path Market Map</h2></div><span>{data?.scenarios?.dominant?.toUpperCase()||'—'} DOMINANT</span></div>
    <div className="scenarioGrid">{(data?.scenarios?.scenarios||[]).map((s:any)=><article className={`scenarioCard ${s.id}`} key={s.id}><div><b>{s.label}</b><strong>{s.probability}%</strong></div><div className="scenarioBar"><i style={{width:`${s.probability}%`}}/></div><small>TRIGGER</small><p>{s.trigger}</p><small>INVALIDATION</small><p>{s.invalidation}</p><small>TARGET</small><b>{money(s.target)}</b></article>)}</div>
    <div className="calibrationNote">{data?.scenarios?.calibrationNote||'Scenario estimates require validation and are not guarantees.'}</div>
+   <div className="auditGrid scenarioDiagnostics">
+    <div className="auditStat"><small>FLOW BIAS</small><b>{data?.scenarios?.diagnostics?.flowRatio==null?'—':(Number(data.scenarios.diagnostics.flowRatio)*100).toFixed(1)+'%'}</b></div>
+    <div className="auditStat"><small>ORDER BOOK</small><b>{data?.scenarios?.diagnostics?.orderBookImbalance==null?'—':(Number(data.scenarios.diagnostics.orderBookImbalance)*100).toFixed(1)+'%'}</b></div>
+    <div className="auditStat"><small>FUNDING</small><b>{data?.scenarios?.diagnostics?.fundingRate==null?'—':(Number(data.scenarios.diagnostics.fundingRate)*100).toFixed(3)+'%'}</b></div>
+    <div className="auditStat"><small>BASIS</small><b>{data?.scenarios?.diagnostics?.basisPct==null?'—':Number(data.scenarios.diagnostics.basisPct).toFixed(3)+'%'}</b></div>
+    <div className="auditStat"><small>LIQUIDATION FLOW</small><b>{data?.scenarios?.diagnostics?.liquidationRatio==null?'—':(Number(data.scenarios.diagnostics.liquidationRatio)*100).toFixed(1)+'%'}</b></div>
+    <div className="auditStat"><small>SCENARIO ENTROPY</small><b>{data?.scenarios?.diagnostics?.entropy??'—'}</b></div>
+   </div>
   </section>
 
   <section className="aiPanel auditPanel">
