@@ -62,6 +62,13 @@ export default function AIPage(){
   </section>
 
   <section className="aiPanel auditPanel">
+   <div className="aiPanelHead"><div><small>CONFIDENCE QUALITY GATE</small><h2>Data Integrity Before Decision</h2></div><span>{data?.confidenceGate?.status||'—'}</span></div>
+   <div className="gateBar"><span style={{width:`${Math.max(0,Math.min(100,data?.confidenceGate?.after||0))}%`}} /></div>
+   <div className="gateMeta"><b>{data?.confidenceGate?.after??0}%</b><span>after {data?.confidenceGate?.penalty??0}% penalty</span></div>
+   {(data?.confidenceGate?.factors||[]).map((x:any,i:number)=><p className="bullet" key={i}>{x}</p>)}
+  </section>
+
+  <section className="aiPanel auditPanel">
    <div className="aiPanelHead"><div><small>ANALYST FAMILY WEIGHTS</small><h2>De-correlated Evidence Map</h2></div><span>WEIGHTED IMPACT</span></div>
    <div className="familyGrid">{(data?.decisionAudit?.familyImpact||[]).map((x:any)=><div className="familyCard" key={x.family}><small>{x.family}</small><b>{x.signed>0?'+':''}{x.signed}</b><span>{x.analysts} specialists · impact {x.impact}</span></div>)}</div>
   </section>
@@ -70,7 +77,7 @@ export default function AIPage(){
    <div className="aiPanelHead"><div><small>CENTRAL DECISION AUDIT</small><h2>Why the Engine Reached This State</h2></div><span>{data?.decisionAudit?.coverage||0} SPECIALISTS VERIFIED</span></div>
    <div className="auditGrid">
     <div className="auditStat"><small>LONG / SHORT / NEUTRAL</small><b>{data?.decisionAudit?.directions?.LONG??0} / {data?.decisionAudit?.directions?.SHORT??0} / {data?.decisionAudit?.directions?.NEUTRAL??0}</b></div>
-    <div className="auditStat"><small>CONTRADICTIONS</small><b>{data?.decisionAudit?.contradictions??0}</b></div><div className="auditStat"><small>ADAPTIVE RELIABILITY</small><b>{data?.consensus?.reliability??'—'}</b></div>
+    <div className="auditStat"><small>CONTRADICTIONS</small><b>{data?.decisionAudit?.contradictions??0}</b></div><div className="auditStat"><small>ADAPTIVE RELIABILITY</small><b>{data?.consensus?.reliability??'—'}</b></div><div className="auditStat"><small>QUALITY GATE</small><b>{data?.confidenceGate?.after??'—'}% · {data?.confidenceGate?.status||'—'}</b></div>
     <div className="auditStat"><small>DOMINANT SCENARIO</small><b>{data?.decisionAudit?.dominantScenario?.toUpperCase()||'—'}</b></div>
    </div>
    <div className="auditCols"><div><small>STRONGEST CONTRIBUTORS</small>{(data?.decisionAudit?.strongest||[]).map((x:any)=><div className="auditRow" key={x.id}><span>{x.id}</span><b className={directionClass(x.direction)}>{x.direction}</b><em>{x.score} · {x.confidence}%</em></div>)}</div><div><small>ACTIVE CONFLICTS</small>{(data?.decisionAudit?.conflicts||[]).slice(0,8).map((x:any,i:number)=><p className="bullet" key={i}><b>{x.analyst}</b> — {x.conflict}</p>)}</div></div>
