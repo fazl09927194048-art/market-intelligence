@@ -4,7 +4,7 @@ import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
 
 type Analyst={id:string;name:string;specialty:string;focus:string[];direction?:string;score?:number;confidence?:number;thesis?:string;independentMethod?:string;conflicts?:string[];evidence?:string[];memory?:{evaluatedPredictions:number;winRate:number|null;currentWeight:number}};
-type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[]};
+type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[];confidenceGate:any;invalidation:any};
 
 const SYMBOLS=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT'];
 const INTERVALS=['5m','15m','1h','4h','1d'];
@@ -21,7 +21,7 @@ export default function AIPage(){
  },[symbol,interval]);
  useEffect(()=>{void refresh()},[refresh]);
  const analysts=useMemo(()=>{const all=data?.analysts||[];return all.filter(a=>filter==='ALL'||a.direction===filter).filter(a=>!query||a.name.toLowerCase().includes(query.toLowerCase())||a.specialty.toLowerCase().includes(query.toLowerCase())||a.id.toLowerCase().includes(query.toLowerCase()))},[data,filter,query]);
- const context={signal:data?.signal,forecast:data?.forecast,scenarios:data?.scenarios,decisionAudit:data?.decisionAudit,risk:data?.risk,consensus:data?.consensus,multiTimeframe:data?.multiTimeframe,newsImpact:data?.newsImpact,news:data?.news?.slice(0,10),warnings:data?.warnings,analysts:data?.analysts?.slice(0,33)};
+ const context={signal:data?.signal,confidenceGate:data?.confidenceGate,invalidation:data?.invalidation,forecast:data?.forecast,scenarios:data?.scenarios,decisionAudit:data?.decisionAudit,risk:data?.risk,consensus:data?.consensus,multiTimeframe:data?.multiTimeframe,newsImpact:data?.newsImpact,news:data?.news?.slice(0,10),warnings:data?.warnings,analysts:data?.analysts?.slice(0,33)};
  return <main className="aiPage" dir={fa?'rtl':'ltr'}>
   <header className="aiPageTop">
    <a className="brand" href="/">MARKET<span>/</span>INTEL</a>
