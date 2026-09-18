@@ -21,11 +21,11 @@ function retryDelay(response: Response) {
   return 1500 + Math.floor(Math.random() * 500);
 }
 
-async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<import('@/lib/signal').import('@/lib/signal').ChartVisionContext|null> {
+async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<import('@/lib/signal').ChartVisionContext|null> {
   const prompt='Analyze this trading chart image only. Do not invent unreadable values. Return ONLY valid JSON with keys direction (BULLISH|BEARISH|NEUTRAL|UNKNOWN), confidence (0-100), trend, support (number[]), resistance (number[]), patterns (string[]), invalidation (string|null), evidence (string[]).';
   const result=await callProvider(apiKey,model,prompt,imageData);
   if(!result.ok||!result.text)return null;
-  try{const match=result.text.match(/\\{[\\s\\S]*\\}/);if(!match)return null;const v=JSON.parse(match[0]);return {direction:v.direction,confidence:Number(v.confidence),trend:String(v.trend||''),support:Array.isArray(v.support)?v.support.map(Number).filter(Number.isFinite).slice(0,6):[],resistance:Array.isArray(v.resistance)?v.resistance.map(Number).filter(Number.isFinite).slice(0,6):[],patterns:Array.isArray(v.patterns)?v.patterns.map(String).slice(0,8):[],invalidation:v.invalidation?String(v.invalidation):null,evidence:Array.isArray(v.evidence)?v.evidence.map(String).slice(0,8):[]};}catch{return null;}
+  try{const match=result.text.match(/\{[\s\S]*\}/);if(!match)return null;const v=JSON.parse(match[0]);return {direction:v.direction,confidence:Number(v.confidence),trend:String(v.trend||''),support:Array.isArray(v.support)?v.support.map(Number).filter(Number.isFinite).slice(0,6):[],resistance:Array.isArray(v.resistance)?v.resistance.map(Number).filter(Number.isFinite).slice(0,6):[],patterns:Array.isArray(v.patterns)?v.patterns.map(String).slice(0,8):[],invalidation:v.invalidation?String(v.invalidation):null,evidence:Array.isArray(v.evidence)?v.evidence.map(String).slice(0,8):[]};}catch{return null;}
 }
 async function callProvider(apiKey: string, model: string, prompt: string, imageData?: string) {
   let detail = '', status = 502;
