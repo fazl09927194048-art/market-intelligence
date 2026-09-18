@@ -11,6 +11,7 @@ import { runAnalystBrain, synthesizeOpinions, buildDecisionAudit } from '@/lib/a
 import { normalizeChartContext, normalizeInterval, type ChartContext } from '@/lib/chart-context';
 import { recordForecastSnapshot } from '@/lib/forecast-snapshots';
 import { buildScenarios } from '@/lib/scenario-engine';
+import { evaluateInvalidation } from '@/lib/invalidation-engine';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -86,8 +87,8 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const confidenceBeforeGate=consensus.confidence;
   const gatedConfidence=Math.max(0,Math.round(confidenceBeforeGate*(1-qualityPenalty/100)));
   const confidenceGate={before:confidenceBeforeGate,after:gatedConfidence,penalty:qualityPenalty,factors:qualityFactors.filter(x=>!x.ok).map(x=>x.reason),status:qualityPenalty>=30?'DEGRADED':qualityPenalty>=15?'CAUTION':'HEALTHY'};
-  if(qualityPenalty>0) warnings.push(`Decision confidence quality gate applied: -${qualityPenalty}% due to data/context limitations.`);
   const warnings = [...market.warnings, ...advanced.warnings, ...technical.warnings, ...chartPatterns.warnings, ...risk.reasons, ...eventReaction.reasons, ...multiTimeFrame.warnings];
+  if(qualityPenalty>0) warnings.push(`Decision confidence quality gate applied: -${qualityPenalty}% due to data/context limitations.`);
   if (newsImpact.level === 'NONE') warnings.push('All configured news sources returned no validated stories for this cycle.'); else if (newsImpact.sourceCount < 2) warnings.push(`News coverage is currently limited to ${newsImpact.sourceCount} validated source(s).`);
   if (newsImpact.level === 'BREAKING') warnings.push(`Breaking news detected: ${newsImpact.breakingCount} high-priority event(s); revalidate directional risk before acting.`);
   if (eventReaction.level === 'CRITICAL') warnings.push('Event reaction is CRITICAL: new directional decisions should be treated as blocked until fresh confirmation.');
@@ -95,6 +96,19 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   if (chart.quality === 'partial') warnings.push('Browser chart context is partial: page price was observed but could not be fully verified.');
   if (chart.quality === 'verified' && chart.ageMs > 120000) warnings.push('Browser chart context is older than 2 minutes.');
   if (multiTimeFrame.conflict) warnings.push('Timeframe conflict detected: directional structure disagrees across sampled intervals.');
+  const invalidation = evaluateInvalidation(signal, technical, advanced, { confidenceGate, eventReaction, multiTimeframe: multiTimeFrame, scenarios });
+  if (invalidation.status === 'NO_TRADE') warnings.push(`Invalidation engine blocked directional execution: ${invalidation.reasons.join(' | ')}`);
+  else if (invalidation.status === 'CAUTION') warnings.push(`Invalidation engine raised caution: ${invalidation.reasons.join(' | ')}`);
+  const finalSignal = invalidation.finalSignal === signal.signal ? signal : {
+    ...signal,
+    signal: 'NO TRADE' as const,
+    confidence: Math.min(signal.confidence, gatedConfidence),
+    entry: advanced.futures.price ?? advanced.spot.price,
+    stopLoss: null,
+    takeProfits: [],
+    riskReward: null,
+    invalidation: invalidation.reasons[0] ?? signal.invalidation,
+  };
   const startPrice = advanced.futures.price ?? advanced.spot.price;
   const forecastAt = new Date().toISOString();
   if(startPrice!==null&&Number.isFinite(startPrice)&&startPrice>0&&forecast.bias!=='UNAVAILABLE'){
@@ -102,7 +116,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null){
