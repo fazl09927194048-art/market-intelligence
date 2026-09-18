@@ -4,7 +4,7 @@ import React,{useCallback,useEffect,useMemo,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
 
 type Analyst={id:string;name:string;specialty:string;focus:string[];direction?:string;score?:number;confidence?:number;thesis?:string;independentMethod?:string;conflicts?:string[];evidence?:string[];memory?:{evaluatedPredictions:number;winRate:number|null;currentWeight:number}};
-type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;signal:any;forecast:any;scenarios:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[]};
+type Intelligence={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId:string;signal:any;forecast:any;scenarios:any;decisionAudit:any;consensus:any;risk:any;multiTimeframe:any;analysts:Analyst[];newsImpact:any;warnings:string[];technical:any;marketData:any;news:any[]};
 
 const SYMBOLS=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT'];
 const INTERVALS=['5m','15m','1h','4h','1d'];
@@ -21,7 +21,7 @@ export default function AIPage(){
  },[symbol,interval]);
  useEffect(()=>{void refresh()},[refresh]);
  const analysts=useMemo(()=>{const all=data?.analysts||[];return all.filter(a=>filter==='ALL'||a.direction===filter).filter(a=>!query||a.name.toLowerCase().includes(query.toLowerCase())||a.specialty.toLowerCase().includes(query.toLowerCase())||a.id.toLowerCase().includes(query.toLowerCase()))},[data,filter,query]);
- const context={signal:data?.signal,forecast:data?.forecast,scenarios:data?.scenarios,risk:data?.risk,consensus:data?.consensus,multiTimeframe:data?.multiTimeframe,newsImpact:data?.newsImpact,news:data?.news?.slice(0,10),warnings:data?.warnings,analysts:data?.analysts?.slice(0,33)};
+ const context={signal:data?.signal,forecast:data?.forecast,scenarios:data?.scenarios,decisionAudit:data?.decisionAudit,risk:data?.risk,consensus:data?.consensus,multiTimeframe:data?.multiTimeframe,newsImpact:data?.newsImpact,news:data?.news?.slice(0,10),warnings:data?.warnings,analysts:data?.analysts?.slice(0,33)};
  return <main className="aiPage" dir={fa?'rtl':'ltr'}>
   <header className="aiPageTop">
    <a className="brand" href="/">MARKET<span>/</span>INTEL</a>
@@ -59,6 +59,16 @@ export default function AIPage(){
    <div className="aiPanelHead"><div><small>SCENARIO ENGINE</small><h2>Three-Path Market Map</h2></div><span>{data?.scenarios?.dominant?.toUpperCase()||'—'} DOMINANT</span></div>
    <div className="scenarioGrid">{(data?.scenarios?.scenarios||[]).map((s:any)=><article className={`scenarioCard ${s.id}`} key={s.id}><div><b>{s.label}</b><strong>{s.probability}%</strong></div><div className="scenarioBar"><i style={{width:`${s.probability}%`}}/></div><small>TRIGGER</small><p>{s.trigger}</p><small>INVALIDATION</small><p>{s.invalidation}</p><small>TARGET</small><b>{money(s.target)}</b></article>)}</div>
    <div className="calibrationNote">{data?.scenarios?.calibrationNote||'Scenario estimates require validation and are not guarantees.'}</div>
+  </section>
+
+  <section className="aiPanel auditPanel">
+   <div className="aiPanelHead"><div><small>CENTRAL DECISION AUDIT</small><h2>Why the Engine Reached This State</h2></div><span>{data?.decisionAudit?.coverage||0} SPECIALISTS VERIFIED</span></div>
+   <div className="auditGrid">
+    <div className="auditStat"><small>LONG / SHORT / NEUTRAL</small><b>{data?.decisionAudit?.directions?.LONG??0} / {data?.decisionAudit?.directions?.SHORT??0} / {data?.decisionAudit?.directions?.NEUTRAL??0}</b></div>
+    <div className="auditStat"><small>CONTRADICTIONS</small><b>{data?.decisionAudit?.contradictions??0}</b></div>
+    <div className="auditStat"><small>DOMINANT SCENARIO</small><b>{data?.decisionAudit?.dominantScenario?.toUpperCase()||'—'}</b></div>
+   </div>
+   <div className="auditCols"><div><small>STRONGEST CONTRIBUTORS</small>{(data?.decisionAudit?.strongest||[]).map((x:any)=><div className="auditRow" key={x.id}><span>{x.id}</span><b className={directionClass(x.direction)}>{x.direction}</b><em>{x.score} · {x.confidence}%</em></div>)}</div><div><small>ACTIVE CONFLICTS</small>{(data?.decisionAudit?.conflicts||[]).slice(0,8).map((x:any,i:number)=><p className="bullet" key={i}><b>{x.analyst}</b> — {x.conflict}</p>)}</div></div>
   </section>
 
   <section className="aiWorkspace">
