@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     if (!key || key.length < 20 || key.length > 500) {
       return NextResponse.json({ ok: false, error: 'Enter a valid AI API key.' }, { status: 400 });
     }
-    const test = await testKey(key, String(body?.model || 'gpt-5.6-luna'));
+    const test = await testKey(key);
     if (!test.ok) {
       return NextResponse.json({
         ok: false,
