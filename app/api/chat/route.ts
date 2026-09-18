@@ -21,6 +21,12 @@ function retryDelay(response: Response) {
   return 1500 + Math.floor(Math.random() * 500);
 }
 
+async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<ChartVisionContext|null> {
+  const prompt='Analyze this trading chart image only. Do not invent unreadable values. Return ONLY valid JSON with keys direction (BULLISH|BEARISH|NEUTRAL|UNKNOWN), confidence (0-100), trend, support (number[]), resistance (number[]), patterns (string[]), invalidation (string|null), evidence (string[]).';
+  const result=await callProvider(apiKey,model,prompt,imageData);
+  if(!result.ok||!result.text)return null;
+  try{const match=result.text.match(/\\{[\\s\\S]*\\}/);if(!match)return null;const v=JSON.parse(match[0]);return {direction:v.direction,confidence:Number(v.confidence),trend:String(v.trend||''),support:Array.isArray(v.support)?v.support.map(Number).filter(Number.isFinite).slice(0,6):[],resistance:Array.isArray(v.resistance)?v.resistance.map(Number).filter(Number.isFinite).slice(0,6):[],patterns:Array.isArray(v.patterns)?v.patterns.map(String).slice(0,8):[],invalidation:v.invalidation?String(v.invalidation):null,evidence:Array.isArray(v.evidence)?v.evidence.map(String).slice(0,8):[]};}catch{return null;}
+}
 async function callProvider(apiKey: string, model: string, prompt: string, imageData?: string) {
   let detail = '', status = 502;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -117,7 +123,12 @@ export async function POST(request: NextRequest) {
       chartData = { symbol, interval, dataQuality: 'unavailable' };
     }
 
-    const prompt = `You are DRO, the final market decision layer. Analyze any attached trading chart image for visible price action, structure, indicators and annotations without inventing unreadable values. Combine image evidence with live market data and the 33-specialist intelligence context. If evidence conflicts or quality is weak, use NO TRADE. Never guarantee profit. Return a concise explanation followed by exactly one line beginning FINAL_TRADE_PLAN_JSON: with valid JSON keys signal (LONG|SHORT|NO TRADE), confidence (0-100), entry, stopLoss, takeProfit, rr, maxOpenMinutes, closeBy (ISO timestamp or null), invalidation, reason. For LONG/SHORT, entry/SL/TP must be numeric; for NO TRADE they may be null. maxOpenMinutes is a maximum planned holding time, not a guarantee.\n\nLIVE CORE CONTEXT:\n${context}\n\nDRO TOOL STATE:\n${JSON.stringify(toolContext)}\n\nCHART IMAGE ATTACHED: ${imageAttached ? 'YES — inspect it carefully' : 'NO'}\n\nLIVE MARKET/CHART DATA:\n${JSON.stringify(chartData)}\n\nBROWSER EXTENSION (${extensionEnabled ? 'ACTIVE' : 'OFF'}):\n${extensionEnabled ? extensionContext || 'No fresh extension snapshot.' : 'Ignore extension data.'}\n\nUSER:\n${message}`;
+    let chartVision: ChartVisionContext|null = null;
+    if (imageAttached) chartVision = await extractChartVision(apiKey, MODEL, imageData);
+    let centralIntelligence:any = null;
+    try { centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision); } catch { centralIntelligence = null; }
+
+    const prompt = `You are DRO, the final market decision layer. Analyze any attached trading chart image for visible price action, structure, indicators and annotations without inventing unreadable values. Combine image evidence with live market data and the 33-specialist intelligence context. If evidence conflicts or quality is weak, use NO TRADE. Never guarantee profit. Return a concise explanation followed by exactly one line beginning FINAL_TRADE_PLAN_JSON: with valid JSON keys signal (LONG|SHORT|NO TRADE), confidence (0-100), entry, stopLoss, takeProfit, rr, maxOpenMinutes, closeBy (ISO timestamp or null), invalidation, reason. For LONG/SHORT, entry/SL/TP must be numeric; for NO TRADE they may be null. maxOpenMinutes is a maximum planned holding time, not a guarantee.\n\nLIVE CORE CONTEXT:\n${context}\n\nCENTRAL IMAGE-AWARE INTELLIGENCE ENGINE:\n${JSON.stringify(centralIntelligence)}\n\nEXTRACTED CHART VISION:\n${JSON.stringify(chartVision)}\n\nDRO TOOL STATE:\n${JSON.stringify(toolContext)}\n\nCHART IMAGE ATTACHED: ${imageAttached ? 'YES — inspect it carefully' : 'NO'}\n\nLIVE MARKET/CHART DATA:\n${JSON.stringify(chartData)}\n\nBROWSER EXTENSION (${extensionEnabled ? 'ACTIVE' : 'OFF'}):\n${extensionEnabled ? extensionContext || 'No fresh extension snapshot.' : 'Ignore extension data.'}\n\nUSER:\n${message}`;
 
     const key = `${MODEL}|${extensionEnabled ? extensionContext : ''}|${context}|${JSON.stringify(chartData)}|${imageData.slice(0, 64)}|${message}`.slice(0, 50000);
     const existing = inFlight.get(key);
