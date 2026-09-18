@@ -7,6 +7,7 @@ export type AnalystProfile = { analystId:string; observations:number; evaluatedP
 
 const MAX_RECORDS=20000, MAX_LESSONS_PER_ANALYST=80;
 const records:AnalystMemoryRecord[]=[]; const weights=new Map<string,number>();
+const evaluatedPredictionIds=new Set<string>();
 let hydrated=false; let hydrationPromise:Promise<void>|null=null;
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 function ensureWeight(id:string){if(!weights.has(id))weights.set(id,1);return weights.get(id)??1;}
@@ -22,9 +23,28 @@ export async function initializePersistentMemory(){
 }
 
 export function remember(record:Omit<AnalystMemoryRecord,'id'|'timestamp'>){const item={...record,id:hashId(`${record.analystId}:${record.kind}:${record.summary}`),timestamp:new Date().toISOString()};records.push(item);if(records.length>MAX_RECORDS)records.splice(0,records.length-MAX_RECORDS);void persist(item);return item;}
-export function rememberAnalystOpinions(symbol:string,regime:string,opinions:AnalystOpinion[]){for(const o of opinions)remember({analystId:o.id,kind:'PREDICTION',symbol,regime,summary:`${o.direction} ${o.score} / ${o.confidence}%`,evidence:o.evidence.slice(0,12),tags:[o.direction,regime,o.independentMethod],confidence:o.confidence});}
+export function rememberAnalystOpinions(symbol:string,regime:string,opinions:AnalystOpinion[],entryPrice?:number){for(const o of opinions)remember({analystId:o.id,kind:'PREDICTION',symbol,regime,summary:`${o.direction} ${o.score} / ${o.confidence}%`,evidence:[...o.evidence.slice(0,11),...(Number.isFinite(entryPrice)&&Number(entryPrice)>0?[`entryPrice:${Number(entryPrice)}`]:[])],tags:[o.direction,regime,o.independentMethod],confidence:o.confidence});}
 export function recordAnalystOutcome(analystId:string,symbol:string,regime:string,outcome:AnalystOutcome,returnPct:number,lesson:string){remember({analystId,kind:outcome==='OPEN'?'OBSERVATION':'OUTCOME',symbol,regime,summary:`${outcome}: ${returnPct.toFixed(4)}%`,evidence:lesson?[lesson]:[],tags:[outcome,regime],confidence:100,outcome,returnPct});if(lesson.trim())remember({analystId,kind:'LESSON',symbol,regime,summary:lesson.trim(),evidence:[],tags:[regime],confidence:100});adaptWeight(analystId);void persistProfile(analystId);}
 function adaptWeight(id:string){const e=records.filter(r=>r.analystId===id&&r.kind==='OUTCOME'&&r.outcome!=='OPEN').slice(-120);if(e.length<20)return;const w=e.filter(r=>r.outcome==='WIN').length;const avg=e.reduce((s,r)=>s+(r.returnPct??0),0)/e.length;const sw=(w+10)/(e.length+20);const performance=clamp((sw-.5)*2+clamp(avg/5,-1,1),-1,1);const reliability=clamp(e.length/50,.35,1);const p=performance*(0.4+0.6*reliability);const previous=ensureWeight(id);const target=clamp(1+p*.45,.55,1.45);weights.set(id,Number(clamp(previous*.7+target*.3,.55,1.45).toFixed(4)));}
+export function evaluateMaturedPredictions(symbol:string,interval:string,currentPrice:number,regime:string){
+  if(!Number.isFinite(currentPrice)||currentPrice<=0)return {evaluated:0,skipped:0};
+  const unit=interval.endsWith('m')?60000:interval.endsWith('h')?3600000:interval.endsWith('d')?86400000:3600000;
+  const n=Number.parseInt(interval,10)||1; const horizon=Math.max(unit*n*3,unit*n*8);
+  const now=Date.now(); let evaluated=0,skipped=0;
+  for(const p of records.filter(r=>r.kind==='PREDICTION'&&r.symbol===symbol).slice(-500)){
+    if(evaluatedPredictionIds.has(p.id)){skipped++;continue;}
+    const age=now-Date.parse(p.timestamp); if(!Number.isFinite(age)||age<horizon){skipped++;continue;}
+    const entry=Number(p.evidence.find(x=>x.startsWith('entryPrice:'))?.slice(11));
+    if(!Number.isFinite(entry)||entry<=0){skipped++;continue;}
+    const direction=p.tags[0]; if(direction!=='LONG'&&direction!=='SHORT'){skipped++;continue;}
+    const returnPct=(direction==='LONG'?currentPrice-entry:entry-currentPrice)/entry*100;
+    const outcome=returnPct>0?'WIN':returnPct<0?'LOSS':'INVALIDATED';
+    recordAnalystOutcome(p.analystId,symbol,regime,outcome,returnPct,'Auto-evaluated after '+interval+'; prediction '+direction+' at '+entry+'.');
+    evaluatedPredictionIds.add(p.id); evaluated++;
+  }
+  return {evaluated,skipped};
+}
+
 export function getAnalystMemory(id:string,limit=24){return records.filter(r=>r.analystId===id).slice(-Math.max(1,Math.min(200,limit)));}
 export function retrieveRelevantMemories(id:string,query:string,symbol?:string,regime?:string,limit=12){const tokens=String(query).toLowerCase().split(/[^a-z0-9_-]+/).filter(Boolean);const now=Date.now();return records.filter(r=>r.analystId===id).map(r=>{const hay=`${r.symbol} ${r.regime} ${r.summary} ${r.evidence.join(' ')} ${r.tags.join(' ')}`.toLowerCase();const hits=tokens.reduce((n,t)=>n+(hay.includes(t)?1:0),0);const age=Math.max(0,(now-Date.parse(r.timestamp))/86400000);const recency=Math.exp(-age/30);const context=(symbol&&r.symbol===symbol.toUpperCase()?0.8:0)+(regime&&r.regime===regime?0.8:0);return {...r,relevance:Number((hits*2+context+recency+r.confidence/1000).toFixed(4))};}).sort((a,b)=>b.relevance-a.relevance).slice(0,Math.max(1,Math.min(50,limit)));}
 
