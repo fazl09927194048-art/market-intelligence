@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     const toolContext = body?.toolContext || {};
     const imageData = typeof body?.imageData === 'string' && /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/.test(body.imageData) ? body.imageData : '';
     const imageAttached = Boolean(imageData);
-    if (!message) return jsonError('Message is required.', 400);
+    if (!message && !imageData) return jsonError('Message or chart image is required.', 400);
 
     const symbol = safeText(body?.symbol || context.match(/\"symbol\"\s*:\s*\"([A-Z0-9]+)\"/)?.[1] || 'BTCUSDT', 20);
     const interval = safeText(body?.interval || context.match(/\"interval\"\s*:\s*\"([A-Za-z0-9]+)\"/)?.[1] || '15m', 10);
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
           },
         };
       }
-      return { status: 200, body: (() => { const match = result.text.match(/FINAL_TRADE_PLAN_JSON:\s*(\{.*\})/s); let tradePlan: any = null; if (match) { try { tradePlan = JSON.parse(match[1]); } catch {} } return { ok: true, text: result.text.replace(/\n?FINAL_TRADE_PLAN_JSON:\s*\{.*\}\s*$/s, '').trim(), tradePlan, imageAttached, model: result.model, extensionEnabled, chartEnabled: Boolean(toolContext.chart), generatedAt: new Date().toISOString() }; })() };
+      return { status: 200, body: (() => { const match = result.text.match(/FINAL_TRADE_PLAN_JSON:\s*(\{.*\})/s); let tradePlan: any = null; if (match) { try { tradePlan = JSON.parse(match[1]); } catch {} } if (tradePlan && (tradePlan.signal === 'LONG' || tradePlan.signal === 'SHORT')) { const raw = Number(tradePlan.maxOpenMinutes); const fallback = interval.endsWith('m') ? Math.max(15, (Number.parseInt(interval,10)||15)*8) : interval.endsWith('h') ? Math.max(60, (Number.parseInt(interval,10)||1)*8*60) : 480; const maxOpenMinutes = Number.isFinite(raw) && raw > 0 ? Math.min(10080, Math.round(raw)) : fallback; tradePlan.maxOpenMinutes = maxOpenMinutes; tradePlan.closeBy = new Date(Date.now() + maxOpenMinutes*60000).toISOString(); tradePlan.entry = Number.isFinite(Number(tradePlan.entry)) ? Number(tradePlan.entry) : null; tradePlan.stopLoss = Number.isFinite(Number(tradePlan.stopLoss)) ? Number(tradePlan.stopLoss) : null; tradePlan.takeProfit = Number.isFinite(Number(tradePlan.takeProfit)) ? Number(tradePlan.takeProfit) : null; tradePlan.rr = Number.isFinite(Number(tradePlan.rr)) ? Number(tradePlan.rr) : null; } else if (tradePlan) { tradePlan.entry=null; tradePlan.stopLoss=null; tradePlan.takeProfit=null; tradePlan.closeBy=null; } return { ok: true, text: result.text.replace(/\n?FINAL_TRADE_PLAN_JSON:\s*\{.*\}\s*$/s, '').trim(), tradePlan, imageAttached, model: result.model, extensionEnabled, chartEnabled: Boolean(toolContext.chart), generatedAt: new Date().toISOString() }; })() };
     })();
     inFlight.set(key, work);
     try {
