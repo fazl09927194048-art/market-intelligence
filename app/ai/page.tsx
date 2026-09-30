@@ -44,7 +44,7 @@ export default function AIPage(){
     <select value={interval} onChange={e=>setIntervalValue(e.currentTarget.value)}>{INTERVALS.map(x=><option key={x}>{x}</option>)}</select>
     <button className="deep" onClick={()=>void refresh()} disabled={loading||imageLoading}>{loading?'SCANNING…':fa?'اسکن کامل':'FULL SCAN'}</button><button type="button" className="imageScanBtn" title="Upload trading chart image" onClick={()=>imageInputRef.current?.click()}>📷 {imageName?(fa?'تغییر تصویر':'CHANGE CHART IMAGE'):(fa?'افزودن تصویر نمودار':'ADD CHART IMAGE')}</button>{imageData&&<button className="imageDeep" onClick={()=>void scanImage()} disabled={imageLoading}>{imageLoading?(fa?'در حال اسکن تصویر…':'SCANNING IMAGE…') :(fa?'اسکن عمیق تصویر':'DEEP SCAN IMAGE')}</button>}
    </div>
-   <div className="chartUploadBox">
+   <div className="chartUploadBox" id="image-scan">
     <div className="chartUploadTitle"><span>📷 CHART IMAGE ANALYSIS</span><small>Upload a trading chart for visual AI analysis</small></div>
     <div className="chartUploadActions">
      <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={async e=>{const file=e.currentTarget.files?.[0];if(!file)return;try{setImageData(await prepareImage(file));setImageName(file.name);setImageResult(null);setError('')}catch(err){setError(err instanceof Error?err.message:'Image error')}finally{e.currentTarget.value=''}}}/>
