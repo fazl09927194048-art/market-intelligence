@@ -130,12 +130,22 @@ export type ChartVisionContext = {
   patterns?: string[];
   invalidation?: string | null;
   evidence?: string[];
+  timeframe?: string | null;
+  marketStructure?: string | null;
+  liquidity?: string | null;
+  volumeContext?: string | null;
+  indicatorContext?: string | null;
+  visualQuality?: number;
+  uncertainty?: string[];
 };
 
 export function applyChartVision(signal: SignalResult, vision?: ChartVisionContext | null): SignalResult {
   if (!vision || vision.direction === 'UNKNOWN' || !Number.isFinite(Number(vision.confidence))) return signal;
   const vc = clamp(Number(vision.confidence), 0, 100);
-  if (vc < 55) return {...signal, conflicts:[...signal.conflicts,'Chart-image evidence confidence is below the integration threshold.']};
+  const visualQuality = Number.isFinite(Number(vision.visualQuality)) ? clamp(Number(vision.visualQuality), 0, 100) : 100;
+  const uncertaintyCount = Array.isArray(vision.uncertainty) ? vision.uncertainty.length : 0;
+  if (visualQuality < 50 || vc < 55) return {...signal, confidence:Math.min(signal.confidence,Math.round(Math.min(vc,visualQuality))), conflicts:[...signal.conflicts,'Chart-image evidence quality is too low for a directional confirmation.'], invalidation:vision.invalidation || signal.invalidation};
+  if (uncertaintyCount >= 4) return {...signal, confidence:Math.min(signal.confidence,55), conflicts:[...signal.conflicts,'The chart contains multiple unresolved visual uncertainties.'], invalidation:vision.invalidation || signal.invalidation};
   const dir = vision.direction === 'BULLISH' ? 'LONG' : vision.direction === 'BEARISH' ? 'SHORT' : 'NEUTRAL';
   const evidence = [...signal.evidence, ...(vision.evidence ?? []).slice(0,4).map(x=>'Chart vision: '+x)];
   if (dir === signal.signal) return {...signal, confidence:clamp(Math.round(signal.confidence*0.7+vc*0.3),0,95), evidence, invalidation:vision.invalidation || signal.invalidation};
