@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const guard = consumeRateLimit(request, 'ai-chat', 12);
   if (!guard.allowed) return jsonError('Too many AI requests. Please retry shortly.', 429, undefined, { retryAfterMs: guard.retryAfter * 1000 });
-  if (tooLarge(request, 2_500_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+  if (tooLarge(request, 8_000_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
   try {
     let apiKey: string | null = null;
     try { apiKey = await getUserAIKey(); } catch {}
