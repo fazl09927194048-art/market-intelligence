@@ -13,7 +13,8 @@ const liveCache = new Map<string, { at: number; data: AdvancedMarketData }>();
 const LIVE_TTL = 3000;
 
 function safeText(value: unknown, max = 12000) {
-  return String(value ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, max);
+  const raw = typeof value === 'string' ? value : (() => { try { return JSON.stringify(value ?? ''); } catch { return String(value ?? ''); } })();
+  return raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').slice(0, max);
 }
 function jsonError(message: string, status: number, detail?: string, extra: Record<string, unknown> = {}) {
   return NextResponse.json({ ok: false, error: message, detail: detail?.slice(0, 700), ...extra }, { status, headers: { 'Cache-Control': 'no-store' } });
