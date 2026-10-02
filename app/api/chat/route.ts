@@ -5,8 +5,9 @@ import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { getUserAIKey } from '@/lib/user-ai-key';
 
 export const dynamic = 'force-dynamic';
-const MODEL = process.env.OPENAI_MODEL || 'gpt-5.6-luna';
-const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || (MODEL === 'gpt-5.6-luna' ? 'gpt-5.6-terra' : 'gpt-5.6-luna');
+const MODEL = process.env.OPENAI_MODEL || 'gpt-6-luna';
+const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-6-sol';
+const MODEL_CANDIDATES = Array.from(new Set([MODEL, FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-4.1-mini'])).filter(Boolean);
 const inFlight = new Map<string, Promise<{ status: number; body: any }>>();
 const liveCache = new Map<string, { at: number; data: AdvancedMarketData }>();
 const LIVE_TTL = 3000;
@@ -23,9 +24,9 @@ function retryDelay(response: Response) {
   return 1500 + Math.floor(Math.random() * 500);
 }
 
-async function extractChartVision(apiKey:string, model:string, imageData:string): Promise<import('@/lib/signal').ChartVisionContext|null> {
+async function extractChartVision(apiKey:string, imageData:string): Promise<import('@/lib/signal').ChartVisionContext|null> {
   const prompt='Analyze this trading chart image at high visual depth. The image is the primary visual artifact, but never invent unreadable values. Inspect timeframe if visible, candlestick/price action, market structure, swing highs/lows, support/resistance, breakout or fakeout, liquidity sweep, imbalance/gaps, volume or order-flow overlays, visible indicators (RSI/MACD/EMA/VWAP/Bollinger when readable), divergence, annotations, and price scale. Explicitly separate observed facts from uncertain interpretations. Return ONLY valid JSON with keys: direction (BULLISH|BEARISH|NEUTRAL|UNKNOWN), confidence (0-100), visualQuality (0-100), trend, timeframe (string|null), marketStructure (string|null), liquidity (string|null), volumeContext (string|null), indicatorContext (string|null), support (number[]), resistance (number[]), patterns (string[]), invalidation (string|null), uncertainty (string[]), evidence (string[]). If a value is not readable, use null/empty arrays and mention it in uncertainty.';
-  const result=await callProvider(apiKey,model,prompt,imageData);
+  const result=await callProviderWithFallback(apiKey,prompt,imageData);
   if(!result.ok||!result.text)return null;
   try{const match=result.text.match(/\{[\s\S]*\}/);if(!match)return null;const v=JSON.parse(match[0]);return {direction:v.direction,confidence:Number(v.confidence),visualQuality:Number.isFinite(Number(v.visualQuality))?Number(v.visualQuality):75,trend:String(v.trend||''),timeframe:v.timeframe?String(v.timeframe):null,marketStructure:v.marketStructure?String(v.marketStructure):null,liquidity:v.liquidity?String(v.liquidity):null,volumeContext:v.volumeContext?String(v.volumeContext):null,indicatorContext:v.indicatorContext?String(v.indicatorContext):null,support:Array.isArray(v.support)?v.support.map(Number).filter(Number.isFinite).slice(0,6):[],resistance:Array.isArray(v.resistance)?v.resistance.map(Number).filter(Number.isFinite).slice(0,6):[],patterns:Array.isArray(v.patterns)?v.patterns.map(String).slice(0,10):[],invalidation:v.invalidation?String(v.invalidation):null,uncertainty:Array.isArray(v.uncertainty)?v.uncertainty.map(String).slice(0,8):[],evidence:Array.isArray(v.evidence)?v.evidence.map(String).slice(0,10):[]};}catch{return null;}
 }
@@ -63,6 +64,19 @@ async function callProvider(apiKey: string, model: string, prompt: string, image
   return { ok: false, status, detail };
 }
 
+async function callProviderWithFallback(apiKey: string, prompt: string, imageData?: string) {
+  let last: any = { ok: false, status: 502, detail: 'No compatible AI model was available.' };
+  for (const model of MODEL_CANDIDATES) {
+    const result = await callProvider(apiKey, model, prompt, imageData);
+    if (result.ok) return result;
+    last = result;
+    // 400/404 commonly means an unavailable/unsupported model. Try the next candidate.
+    // 401/403 means the key/permissions are wrong and retrying another model will not help.
+    if (result.status === 401 || result.status === 403) break;
+  }
+  return last;
+}
+
 async function getLive(symbol: string, interval: string) {
   const key = `${symbol}:${interval}`;
   const cached = liveCache.get(key);
@@ -80,7 +94,7 @@ export async function GET(request: NextRequest) {
   let userKey: string | null = null;
   try { userKey = await getUserAIKey(); } catch {}
   const configured = Boolean(userKey || process.env.OPENAI_API_KEY);
-  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured, keySource: userKey ? 'user' : process.env.OPENAI_API_KEY ? 'server' : 'none', model: MODEL, fallbackConfigured: Boolean(process.env.OPENAI_FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ ok: true, service: 'DRO AI chat', configured, keySource: userKey ? 'user' : process.env.OPENAI_API_KEY ? 'server' : 'none', model: MODEL, modelCandidates: MODEL_CANDIDATES, fallbackConfigured: Boolean(process.env.OPENAI_FALLBACK_MODEL), fallbackModel: FALLBACK_MODEL, timestamp: new Date().toISOString() }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(request: NextRequest) {
@@ -131,7 +145,7 @@ export async function POST(request: NextRequest) {
     }
 
     let chartVision: import('@/lib/signal').ChartVisionContext|null = null;
-    if (imageAttached) chartVision = await extractChartVision(apiKey, MODEL, imageData);
+    if (imageAttached) chartVision = await extractChartVision(apiKey, imageData);
     let centralIntelligence:any = null;
     try { centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision); } catch { centralIntelligence = null; }
 
@@ -145,18 +159,14 @@ export async function POST(request: NextRequest) {
     }
 
     const work = (async () => {
-      let result = await callProvider(apiKey, MODEL, prompt, imageData);
-      const transientFailure = [429, 500, 502, 503, 504].includes(result.status);
-      if (!result.ok && transientFailure && FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) {
-        result = await callProvider(apiKey, FALLBACK_MODEL, prompt, imageData);
-      }
+      let result = await callProviderWithFallback(apiKey, prompt, imageData);
       if (!result.ok) {
         const rate = result.status === 429;
         return {
           status: rate ? 429 : result.status >= 500 ? 502 : result.status,
           body: {
             ok: false,
-            error: rate ? 'AI provider is temporarily rate-limited or quota-limited. DRO live market data remains available; please retry shortly.' : `AI provider error (${result.status}).`,
+            error: rate ? 'AI provider is temporarily rate-limited or quota-limited. DRO live market data remains available; please retry shortly.' : result.status === 400 || result.status === 404 ? 'DRO could not use any compatible AI model with this key. Check model access in your OpenAI project or save the key again.' : result.status === 401 || result.status === 403 ? 'The AI key was rejected or does not have permission to use the API.' : `AI provider error (${result.status}).`,
             detail: result.detail?.slice(0, 500),
             retryable: rate || result.status >= 500,
             retryAfterMs: rate ? 2500 : 0,
