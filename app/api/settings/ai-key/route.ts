@@ -4,17 +4,41 @@ import { clearUserAIKey, getUserAIKey, maskAIKey, saveUserAIKey } from '@/lib/us
 export const dynamic = 'force-dynamic';
 
 async function testKey(apiKey: string) {
-  const response = await fetch('https://api.openai.com/v1/models', {
+  const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+  const modelsResponse = await fetch('https://api.openai.com/v1/models', {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',
     signal: AbortSignal.timeout(15000),
   });
-  if (!response.ok) {
-    const detail = await response.text();
-    return { ok: false, status: response.status, detail: detail.slice(0, 400) };
+  if (!modelsResponse.ok) {
+    const detail = await modelsResponse.text();
+    return { ok: false, status: modelsResponse.status, detail: detail.slice(0, 500) };
   }
-  return { ok: true, status: response.status };
+
+  const configured = [process.env.OPENAI_MODEL, process.env.OPENAI_FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-4.1-mini']
+    .filter((x): x is string => Boolean(x))
+    .filter((x, i, a) => a.indexOf(x) === i);
+
+  let last = { ok: false, status: 400, detail: 'No compatible model could answer a test request.' };
+  for (const model of configured) {
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers,
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ model, input: 'Reply with OK.', max_output_tokens: 8 }),
+      });
+      if (response.ok) return { ok: true, status: 200, model };
+      const detail = await response.text();
+      last = { ok: false, status: response.status, detail: detail.slice(0, 500) };
+      if (response.status === 401 || response.status === 403) break;
+    } catch (e) {
+      last = { ok: false, status: 502, detail: e instanceof Error ? e.message : 'Provider connection failed.' };
+    }
+  }
+  return last;
 }
 
 export async function GET() {
@@ -47,12 +71,12 @@ export async function POST(request: NextRequest) {
     if (!test.ok) {
       return NextResponse.json({
         ok: false,
-        error: test.status === 401 ? 'The API key was rejected by the provider.' : `AI provider returned HTTP ${test.status}.`,
+        error: test.status === 401 ? 'The API key was rejected by the provider.' : test.status === 403 ? 'The API key is valid but does not have permission to use a compatible model.' : test.status === 400 || test.status === 404 ? 'The API key is valid, but no compatible DRO model is available to this project.' : `AI provider returned HTTP ${test.status}.`,
         detail: test.detail,
       }, { status: test.status === 429 ? 429 : 400 });
     }
     await saveUserAIKey(key);
-    return NextResponse.json({ ok: true, configured: true, maskedKey: maskAIKey(key), provider: 'OpenAI' });
+    return NextResponse.json({ ok: true, configured: true, maskedKey: maskAIKey(key), provider: 'OpenAI', model: test.model || null });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Could not save AI key.' }, { status: 500 });
   }
