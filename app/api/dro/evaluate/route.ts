@@ -18,14 +18,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await evaluateDuePredictions(async (symbol, interval) => {
+  const result = await evaluateDuePredictions(async ({ symbol, interval, direction, entry }) => {
     const live = await getAdvancedMarketData(symbol, interval, 20);
     const price = Number(live?.futures?.price ?? live?.spot?.price);
     if (!Number.isFinite(price)) return null;
-    const change = Number(live?.futures?.change24h ?? live?.spot?.change24h ?? 0);
-    if (!Number.isFinite(change)) return null;
-    if (Math.abs(change) < 0.02) return 'NEUTRAL';
-    return change > 0 ? 'LONG' : 'SHORT';
+    if (String(direction).toUpperCase() === 'NO TRADE' || entry == null) return 'NEUTRAL';
+    const distance = Math.abs(price - Number(entry)) / Math.max(Math.abs(Number(entry)), 1);
+    if (distance < 0.001) return 'NEUTRAL';
+    return price > Number(entry) ? 'LONG' : 'SHORT';
   });
 
   return NextResponse.json(
