@@ -42,7 +42,27 @@ function money(value: unknown) {
   return n >= 100 ? n.toFixed(0) : n.toFixed(4);
 }
 
-function buildIndependentReply(cycle: any, message: string, imageAttached: boolean) {
+function normalizeHistory(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-12).map((item: any) => ({
+    role: item?.role === 'assistant' ? 'assistant' : 'user',
+    text: safeText(item?.text, 1800).trim(),
+  })).filter((item: any) => item.text);
+}
+
+function detectIntent(message: string, history: any[]) {
+  const text = message.toLowerCase();
+  if (/^(hi|hello|hey|سلام|درود|خوبی|چطوری)/.test(text)) return 'greeting';
+  if (/help|کمک|چه کار|چی کار|قابلیت/.test(text)) return 'help';
+  if (/price|قیمت|نرخ|چند/.test(text)) return 'price';
+  if (/why|چرا|علت|دلیل/.test(text)) return 'why';
+  if (/signal|سیگنال|لانگ|شورت|long|short|ورود|خروج/.test(text)) return 'trade';
+  if (/news|خبر|اخبار|رویداد/.test(text)) return 'news';
+  if (/image|chart|نمودار|عکس|تصویر/.test(text)) return 'chart';
+  return history.length ? 'followup' : 'market';
+}
+
+function buildIndependentReply(cycle: any, message: string, imageAttached: boolean, history: any[] = []) {
   const signal = cycle?.signal ?? {};
   const plan = cycle?.tradePlan ?? {};
   const forecast = cycle?.forecast ?? {};
@@ -52,9 +72,14 @@ function buildIndependentReply(cycle: any, message: string, imageAttached: boole
   const invalidation = cycle?.invalidation ?? {};
   const dataQuality = cycle?.dataValid ? 'VALID' : 'LIMITED';
   const direction = plan?.side || signal?.signal || 'NO TRADE';
+  const intent = detectIntent(message, history);
+  const previous = history.length ? history[history.length - 1]?.text : '';
 
   const lines = [
     'DRO مستقل فعال است — بدون API Key و بدون وابستگی به مدل خارجی.',
+    intent === 'greeting' ? 'سلام. من DRO هستم. می‌توانم وضعیت بازار، قیمت، سیگنال، ریسک و دلیل تصمیم موتور را بررسی کنم.' :
+      intent === 'help' ? 'قابلیت‌های فعلی: تحلیل زنده بازار، قیمت، سناریو و ریسک، پلن Entry/SL/TP، پیگیری مکالمه و دریافت تصویر نمودار.' :
+      intent === 'followup' ? `این پاسخ ادامه پیام قبلی توست: «${previous.slice(0, 220)}»` : '',
     '',
     `وضعیت داده: ${dataQuality} | ${cycle?.symbol || 'BTCUSDT'} | ${cycle?.interval || '15m'}`,
     `تصمیم موتور: ${direction} | اعتماد گیت‌شده: ${Number(cycle?.confidenceGate?.after ?? signal?.confidence ?? 0).toFixed(0)}%`,
@@ -151,6 +176,7 @@ export async function POST(request: NextRequest) {
       chartData = { symbol, interval, dataQuality: 'unavailable' };
     }
 
+    const history = normalizeHistory(body?.history);
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
     const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageData.slice(0, 80)}`.slice(0, 50000);
     const existing = inFlight.get(key);
@@ -160,7 +186,7 @@ export async function POST(request: NextRequest) {
     }
 
     const work = (async () => {
-      const text = buildIndependentReply(centralIntelligence, message, Boolean(imageData));
+      const text = buildIndependentReply(centralIntelligence, message, Boolean(imageData), history);
       return {
         status: 200,
         body: {
