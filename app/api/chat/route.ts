@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
+import { recordPrediction } from '@/lib/dro-learning';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,6 +179,15 @@ export async function POST(request: NextRequest) {
 
     const history = normalizeHistory(body?.history);
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
+    const prediction = recordPrediction({
+      symbol,
+      interval,
+      direction: String(centralIntelligence?.tradePlan?.side || centralIntelligence?.signal?.signal || 'NO TRADE'),
+      confidence: Number(centralIntelligence?.confidenceGate?.after ?? centralIntelligence?.signal?.confidence ?? 0),
+      entry: centralIntelligence?.tradePlan?.entry ?? null,
+      target: centralIntelligence?.tradePlan?.takeProfit ?? null,
+      stopLoss: centralIntelligence?.tradePlan?.stopLoss ?? null,
+    });
     const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageData.slice(0, 80)}`.slice(0, 50000);
     const existing = inFlight.get(key);
     if (existing) {
@@ -212,6 +222,7 @@ export async function POST(request: NextRequest) {
             warnings: centralIntelligence.warnings,
           },
           chartData,
+          predictionId: prediction.id,
           generatedAt: new Date().toISOString(),
         },
       };
