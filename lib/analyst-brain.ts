@@ -67,7 +67,7 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
     if(news.some(n=>n.impact==='BREAKING')) conflicts.push('Breaking news can invalidate technical assumptions.');
     evidence.push(method);
     const confidence=clamp(Math.round(45+Math.abs(s)*0.55+(t.confidence-75)*0.25-conflicts.length*5),0,96);
-    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Memory weight ${memoryWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:effectiveWeight,recentLessons:memory.profile.recentLessons}};
+    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Adaptive weight ${effectiveWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:effectiveWeight,recentLessons:memory.profile.recentLessons}};
   });
   rememberAnalystOpinions(data.symbol, regime, opinions);
   return opinions;
