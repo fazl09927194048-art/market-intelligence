@@ -4,6 +4,7 @@ import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
 import { persistPrediction } from '@/lib/dro-learning-db';
+import { rememberConversation, getConversationContext } from '@/lib/dro-learning';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,9 +179,11 @@ export async function POST(request: NextRequest) {
       chartData = { symbol, interval, dataQuality: 'unavailable' };
     }
 
-    const history = normalizeHistory(body?.history);
+    const clientHistory = normalizeHistory(body?.history);
+  const history = clientHistory.length ? clientHistory : getConversationContext(12);
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
+    rememberConversation('user', message);
     const prediction = recordPrediction({
       symbol,
       interval,
