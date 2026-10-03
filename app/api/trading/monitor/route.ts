@@ -13,7 +13,7 @@ export async function GET(req:NextRequest){
   if(!exchangeId){const xs=await listExchanges(userId);if(xs.length!==1)return NextResponse.json({ok:false,error:'Select exchangeId when multiple exchanges are connected.'},{status:409});exchangeId=String(xs[0].id)}
   const x=await getExchange(userId,exchangeId);
   if(x.record.name!=='binance') return NextResponse.json({ok:false,error:'Monitoring is currently implemented for Binance.'},{status:501});
-  const [ticker,orders]=await Promise.all([exchangeManager.getTicker(x.record.name,x.credentials,symbol),exchangeManager.getOrderHistory(x.record.name,x.credentials,symbol,100)]);
+  const [ticker,orders]=await Promise.all([exchangeManager.ticker(x.record.name,x.credentials,symbol),exchangeManager.history(x.record.name,x.credentials,symbol,100)]);
   const rows=Array.isArray(orders)?orders.filter((o:any)=>String(o.status).toUpperCase()==='FILLED'):[];
   let qty=0,cost=0;
   for(const o of rows){
