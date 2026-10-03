@@ -50,6 +50,17 @@ export async function GET(request: NextRequest) {
       clearTimeout(timer);
     }
   } catch (error) {
+    const stale = cache && unique.every(s => cache!.data[s]);
+    if (stale) {
+      return NextResponse.json({
+        ...cache!.data,
+        serverAt: new Date().toISOString(),
+        cached: true,
+        stale: true,
+        cacheAgeMs: Date.now() - cache!.at,
+        error: 'Live price provider temporarily unavailable; showing the last successful snapshot.'
+      }, { status: 200, headers: { 'Cache-Control': 'no-store', 'X-Data-Stale': 'true' } });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Live price unavailable', serverAt: new Date().toISOString(), cached: false }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }
