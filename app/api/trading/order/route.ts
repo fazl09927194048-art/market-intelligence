@@ -49,9 +49,13 @@ export async function POST(req:NextRequest){
   if(Array.isArray(risk.allowed_symbols)&&risk.allowed_symbols.length&&!risk.allowed_symbols.includes(symbol)) return NextResponse.json({ok:false,error:'Symbol is blocked by the active risk policy.'},{status:403});
   const x=await getExchange(userId,exchangeId);
   if(Array.isArray(risk.allowed_exchanges)&&risk.allowed_exchanges.length&&!risk.allowed_exchanges.includes(x.record.name)) return NextResponse.json({ok:false,error:'Exchange is blocked by the active risk policy.'},{status:403});
-  const notional=quoteQuantity??(quantity!==undefined?(price??0)*quantity:0);
+  let effectivePrice=price;
+  if(droGuard?.entry && type==='MARKET') effectivePrice=Number(droGuard.entry);
+  const notional=quoteQuantity??(quantity!==undefined?(effectivePrice??0)*quantity:0);
   if(!Number.isFinite(notional)||notional<=0) return NextResponse.json({ok:false,error:'Unable to determine order notional. Provide price for LIMIT orders.'},{status:400});
   if(notional>Number(risk.max_order_usd)) return NextResponse.json({ok:false,error:'Order exceeds max_order_usd ('+risk.max_order_usd+').'},{status:403});
+  if(droGuard && notional>Number(risk.max_position_usd)) return NextResponse.json({ok:false,error:'DRO execution blocked: requested position exceeds max_position_usd ('+risk.max_position_usd+').'},{status:403});
+  if(droGuard && type==='LIMIT' && price!==undefined){const deviation=Math.abs(price-Number(droGuard.entry))/Number(droGuard.entry)*100;if(!Number.isFinite(deviation)||deviation>0.5)return NextResponse.json({ok:false,error:'DRO execution blocked: limit price is more than 0.5% away from the approved entry.'},{status:409});}
   await ensureExchangeSchema();
   const count=await db().query("SELECT COUNT(*)::int AS n FROM orders WHERE user_id=$1 AND created_at>=CURRENT_DATE",[userId]);
   if(Number(count.rows[0]?.n||0)>=Number(risk.max_trades)) return NextResponse.json({ok:false,error:'Daily trade limit reached ('+risk.max_trades+').'},{status:403});
