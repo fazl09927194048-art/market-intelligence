@@ -8,7 +8,7 @@ export function SettingsPage(){
  useEffect(()=>{void load()},[]);
  const save=async()=>{if(!key.trim())return;setSaving(true);setMessage('');setError('');try{const r=await fetch('/api/settings/ai-key',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'save',apiKey:key.trim()})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not save key');setConfigured(true);setMasked(d.maskedKey||'');setKey('');setMessage('Key verified and securely saved for this browser. DRO will use it automatically.')}catch(e){setError(e instanceof Error?e.message:'Could not save key')}finally{setSaving(false)}};
  const remove=async()=>{setSaving(true);setMessage('');setError('');try{const r=await fetch('/api/settings/ai-key',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'remove'})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Could not remove key');setConfigured(false);setMasked('');setMessage('Saved AI key removed.')}catch(e){setError(e instanceof Error?e.message:'Could not remove key')}finally{setSaving(false)}};
- return <main style={{minHeight:'100vh',background:'#06080c',color:'#e8edf2',padding:'28px 18px',fontFamily:'system-ui,sans-serif'}}>
+ return <div style={{minHeight:'100vh',background:'#06080c',color:'#e8edf2',padding:'28px 18px',fontFamily:'system-ui,sans-serif'}}>
   <div style={{maxWidth:760,margin:'0 auto'}}>
    <a href="/" style={{color:'#8ff5ae',textDecoration:'none',fontWeight:800}}>← MARKET/INTEL</a>
    <div style={{marginTop:38,border:'1px solid #1c2924',borderRadius:20,padding:'28px',background:'#0b1110'}}>
