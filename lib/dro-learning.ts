@@ -14,6 +14,7 @@ type PredictionRecord = {
 };
 
 const records: PredictionRecord[] = [];
+const evaluatedIds = new Set<string>();
 const MAX_RECORDS = 5000;
 
 function id() {
@@ -33,6 +34,7 @@ export function evaluatePrediction(predictionId: string, actualDirection: string
   item.actualDirection = actualDirection;
   item.outcome = outcome;
   item.evaluatedAt = new Date().toISOString();
+  evaluatedIds.add(item.id);
   return item;
 }
 
@@ -62,4 +64,20 @@ export function getLearningMetrics(symbol?: string) {
 
 export function listPredictions(symbol?: string) {
   return records.filter(x => !symbol || x.symbol === symbol).slice(-100);
+}
+
+
+export function getPendingPredictions(limit = 50) {
+  return records.filter(x => !x.outcome && !evaluatedIds.has(x.id)).slice(-limit);
+}
+
+export function getEvolutionSnapshot(symbol?: string) {
+  const metrics = getLearningMetrics(symbol);
+  return {
+    generatedAt: new Date().toISOString(),
+    symbol: symbol || 'ALL',
+    metrics,
+    pending: getPendingPredictions(25).filter(x => !symbol || x.symbol === symbol),
+    status: metrics.evaluated < 30 ? 'WARMING_UP' : metrics.accuracy >= 50 && metrics.calibrationGap <= 25 ? 'HEALTHY' : 'NEEDS_REVIEW',
+  };
 }
