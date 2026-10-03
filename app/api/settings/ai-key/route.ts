@@ -58,8 +58,8 @@ async function testKey(apiKey: string) {
   const preferred = [process.env.OPENAI_MODEL, process.env.OPENAI_FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o']
     .filter((x): x is string => Boolean(x));
   const discoveredCandidates = discovered.models
-    .filter(id => /^(gpt-|chatgpt-)/i.test(id))
-    .sort((a,b) => rankModel(a) - rankModel(b));
+    .filter((id: string) => /^(gpt-|chatgpt-)/i.test(id))
+    .sort((a: string, b: string) => rankModel(a) - rankModel(b));
   const candidates = [...new Set([
     ...preferred.filter(id => discoveredCandidates.includes(id)),
     ...discoveredCandidates,
