@@ -9,7 +9,7 @@ export type AnalystOpinion = { id:string; name:string; thesis:string; direction:
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 const dir=(s:number):AnalystOpinion['direction']=>s>=25?'LONG':s<=-25?'SHORT':'NEUTRAL';
 
-export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[]):Promise<AnalystOpinion[]>{
+export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[], interval='15m'):Promise<AnalystOpinion[]>{
   await initializePersistentMemory();
   const r=t.indicators.rsi14??50, ema20=t.indicators.ema20, ema50=t.indicators.ema50, macd=t.indicators.macd, ms=t.indicators.macdSignal;
   const imb=t.liquidity.imbalance??0, funding=data.futures.fundingRate??0, candles=data.futures.candles.length?data.futures.candles:data.spot.candles;
@@ -19,7 +19,7 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
   const regimeSnapshot=detectMarketRegime(data,t);
   const regime=regimeSnapshot.regime;
   const opinions=ANALYSTS.map(a=>{
-    const memory=buildMemoryContext(a.id,`${data.symbol} ${regime} ${a.specialty}`,data.symbol,regime);
+    const memory=buildMemoryContext(a.id,`${data.symbol} ${regime} ${a.specialty}`,data.symbol,regime,interval);
     let s=0, evidence:string[]=[], conflicts:string[]=[], method='independent rule set';
     switch(a.id){
       case 'trend': s=t.structure.trend==='UP'?65:t.structure.trend==='DOWN'?-65:0; method='multi-factor trend regime'; break;
