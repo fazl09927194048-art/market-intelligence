@@ -65,14 +65,49 @@ async function callProvider(apiKey: string, model: string, prompt: string, image
   return { ok: false, status, detail };
 }
 
+async function getAccessibleModels(apiKey: string) {
+  try {
+    const response = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data?.data)
+      ? data.data.map((m:any)=>typeof m?.id==='string'?m.id:'').filter((id:string)=>/^(gpt-|chatgpt-)/i.test(id))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function modelRank(id:string) {
+  const s=id.toLowerCase();
+  if(s==='gpt-6-luna')return 0;
+  if(s==='gpt-6-sol')return 1;
+  if(s==='gpt-6-astra')return 2;
+  if(s==='gpt-6.1-sol')return 3;
+  if(s==='gpt-5.6-sol')return 4;
+  if(s==='gpt-4.1-mini')return 5;
+  if(s==='gpt-4o-mini')return 6;
+  if(s==='gpt-4o')return 7;
+  if(s.startsWith('gpt-'))return 10;
+  return 20;
+}
+
 async function callProviderWithFallback(apiKey: string, prompt: string, imageData?: string) {
-  let last: any = { ok: false, status: 502, detail: 'No compatible AI model was available.' };
-  for (const model of MODEL_CANDIDATES) {
+  const accessible = await getAccessibleModels(apiKey);
+  const candidates = [...new Set([
+    ...MODEL_CANDIDATES.filter(m=>accessible.includes(m)),
+    ...accessible.sort((a,b)=>modelRank(a)-modelRank(b)),
+    ...MODEL_CANDIDATES,
+  ])].slice(0, 30);
+  let last:any = { ok: false, status: 502, detail: 'No compatible AI model was available.' };
+  for (const model of candidates) {
     const result = await callProvider(apiKey, model, prompt, imageData);
     if (result.ok) return result;
     last = result;
-    // 400/404 commonly means an unavailable/unsupported model. Try the next candidate.
-    // 401/403 means the key/permissions are wrong and retrying another model will not help.
     if (result.status === 401 || result.status === 403) break;
   }
   return last;
