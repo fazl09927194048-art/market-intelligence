@@ -1,0 +1,4 @@
+import crypto from 'node:crypto';
+function key(){const raw=process.env.EXCHANGE_CREDENTIALS_KEY||'';if(raw.length<32)throw new Error('EXCHANGE_CREDENTIALS_KEY must be at least 32 characters.');return crypto.createHash('sha256').update(raw).digest()}
+export function encryptSecret(value:string){const iv=crypto.randomBytes(12);const cipher=crypto.createCipheriv('aes-256-gcm',key(),iv);const encrypted=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return [iv.toString('base64'),cipher.getAuthTag().toString('base64'),encrypted.toString('base64')].join('.')}
+export function decryptSecret(value:string){const parts=value.split('.');if(parts.length!==3)throw new Error('Invalid encrypted credential.');const decipher=crypto.createDecipheriv('aes-256-gcm',key(),Buffer.from(parts[0],'base64'));decipher.setAuthTag(Buffer.from(parts[1],'base64'));return Buffer.concat([decipher.update(Buffer.from(parts[2],'base64')),decipher.final()]).toString('utf8')}
