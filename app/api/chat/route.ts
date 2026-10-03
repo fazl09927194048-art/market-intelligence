@@ -53,6 +53,31 @@ function normalizeHistory(value: unknown) {
   })).filter((item: any) => item.text);
 }
 
+function isCloseCommand(message:string){const t=message.toLowerCase();return ['close','exit','sell','ببند','ببندش','بستن معامله','خارج شو','خروج بزن','سود کافی'].some(x=>t.includes(x))||(t.includes('ضرر')&&t.includes('ببند'))}
+async function executeCloseCommand(symbol:string,reason:string){
+ const userId=await getSessionUserId();
+ const exchanges=await listExchanges(userId);
+ if(exchanges.length!==1)return {ok:false,status:409,text:'برای بستن معامله، ابتدا یک صرافی فعال را انتخاب کن؛ بیش از یک اتصال وجود دارد.'};
+ const x=await getExchange(userId,String(exchanges[0].id));
+ const risk=await getTradingRisk(userId);
+ if(risk.emergency_stop)return {ok:false,status:423,text:'Emergency Stop فعال است؛ دستور بستن از این مسیر اجرا نشد.'};
+ if(!x.record.permissions?.trading)return {ok:false,status:403,text:'مجوز Trading روی کلید صرافی فعال نیست.'};
+ const baseAsset=symbol.replace(/USDT$|USDC$|BUSD$|FDUSD$/,'');
+ if(!baseAsset||baseAsset===symbol)return {ok:false,status:400,text:'بستن خودکار این نماد در حالت فعلی پشتیبانی نمی‌شود.'};
+ const balances=await exchangeManager.balance(x.record.name,x.credentials);
+ const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===baseAsset):null;
+ const quantity=Number(row?.free||0);
+ if(!Number.isFinite(quantity)||quantity<=0)return {ok:false,status:409,text:'موجودی قابل فروش برای این نماد پیدا نشد.'};
+ const mode=String(risk.execution_mode||'PAPER').toUpperCase();
+ const intent={exchangeId:String(exchanges[0].id),symbol,side:'SELL',type:'MARKET',quantity,reason};
+ if(mode==='PAPER')return {ok:true,status:200,text:'در حالت PAPER، بستن معامله شبیه‌سازی شد.',mode,intent};
+ if(mode==='CONFIRM')return {ok:true,status:202,text:'دستور بستن آماده است و برای اجرای واقعی تأیید صریح لازم دارد.',mode,intent};
+ if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled)return {ok:false,status:403,text:'اجرای خودکار فعال نیست. ابتدا Execution Mode و Autonomous Trading را فعال کن.'};
+ if(process.env.FLI_LIVE_TRADING_ENABLED!=='true')return {ok:false,status:403,text:'Live execution توسط سرور قفل است.'};
+ const order=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol,side:'SELL',type:'MARKET',quantity:String(quantity),newOrderRespType:'FULL'});
+ await audit({userId,action:'CLOSE_POSITION',exchange:x.record.name,symbol,source:'DRO_CHAT',result:'Position close submitted',status:String(order.status||'ACKNOWLEDGED')});
+ return {ok:true,status:200,text:'دستور بستن معامله ارسال شد.',mode:'AUTONOMOUS',intent,order};
+}
 function detectIntent(message: string, history: any[]) {
   const text = message.toLowerCase();
   if (/^(hi|hello|hey|سلام|درود|خوبی|چطوری)/.test(text)) return 'greeting';
