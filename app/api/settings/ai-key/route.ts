@@ -97,25 +97,54 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const action = String(body?.action || 'save');
+
     if (action === 'remove') {
       await clearUserAIKey();
       return NextResponse.json({ ok: true, configured: false });
     }
+
     const key = String(body?.apiKey || '').trim();
     if (!key || key.length < 20 || key.length > 500) {
       return NextResponse.json({ ok: false, error: 'Enter a valid AI API key.' }, { status: 400 });
     }
-    const test = await testKey(key);
-    if (!test.ok) {
-      return NextResponse.json({
-        ok: false,
-        error: test.status === 401 ? 'The API key was rejected by the provider.' : test.status === 403 ? 'The API key is valid but does not have permission to use a compatible model.' : test.status === 400 || test.status === 404 ? 'The API key reached OpenAI, but none of the models available to this key accepted the DRO test request. The provider response is shown below so the exact access/quota/model issue can be fixed.' : `AI provider returned HTTP ${test.status}.`,
-        detail: test.detail,
-      }, { status: test.status === 429 ? 429 : 400 });
+
+    // Authenticate the key without making a paid inference request.
+    // Model inference is selected later by /api/chat from models actually
+    // visible to this key. This prevents a valid key from being rejected
+    // just because one probe model is unavailable to its project.
+    const verified = await verifyKey(key);
+    if (!verified.ok) {
+      const status = verified.status === 401 ? 401 : verified.status === 403 ? 403 : verified.status === 429 ? 429 : 400;
+      const error = verified.status === 401
+        ? 'The API key was rejected by OpenAI.'
+        : verified.status === 403
+          ? 'The API key reached OpenAI but this project does not have permission to list models.'
+          : verified.status === 429
+            ? 'OpenAI rate-limited this verification request. Please retry in a moment.'
+            : 'OpenAI could not verify this API key.';
+      return NextResponse.json({ ok: false, error, detail: verified.detail }, { status });
     }
+
     await saveUserAIKey(key);
-    return NextResponse.json({ ok: true, configured: true, maskedKey: maskAIKey(key), provider: 'OpenAI', model: ('model' in test ? test.model : null) });
+
+    return NextResponse.json({
+      ok: true,
+      configured: true,
+      maskedKey: maskAIKey(key),
+      provider: 'OpenAI',
+      model: verified.model,
+      modelCount: verified.models.length,
+      note: verified.model
+        ? 'Key verified. DRO will select a model available to this key when you send a request.'
+        : 'Key verified, but no GPT/ChatGPT model was listed. Check model access in your OpenAI project before using DRO AI.',
+    });
   } catch (e) {
+    return NextResponse.json({
+      ok: false,
+      error: e instanceof Error ? e.message : 'Could not save AI key.',
+    }, { status: 500 });
+  }
+}  } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Could not save AI key.' }, { status: 500 });
   }
 }
