@@ -3,6 +3,7 @@ import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
+import { persistPrediction } from '@/lib/dro-learning-db';
 
 export const dynamic = 'force-dynamic';
 
@@ -189,6 +190,7 @@ export async function POST(request: NextRequest) {
       target: centralIntelligence?.tradePlan?.takeProfit ?? null,
       stopLoss: centralIntelligence?.tradePlan?.stopLoss ?? null,
     });
+    void persistPrediction(prediction).catch(() => undefined);
     const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageData.slice(0, 80)}`.slice(0, 50000);
     const existing = inFlight.get(key);
     if (existing) {
