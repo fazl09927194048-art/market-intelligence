@@ -1,0 +1,2 @@
+import {cookies} from 'next/headers';import crypto from 'node:crypto';
+export async function getSessionUserId(){const jar=await cookies();let id=jar.get('fli_session')?.value;if(!id){id=crypto.randomUUID();jar.set('fli_session',id,{httpOnly:true,sameSite:'lax',secure:process.env.NODE_ENV==='production',maxAge:31536000,path:'/'});}return id}
