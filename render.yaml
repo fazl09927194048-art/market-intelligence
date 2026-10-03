@@ -10,5 +10,3 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: DRO_KEY_ENCRYPTION_SECRET
-        generateValue: true
