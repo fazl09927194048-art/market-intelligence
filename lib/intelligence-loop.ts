@@ -14,6 +14,7 @@ import { buildScenarios } from '@/lib/scenario-engine';
 import { evaluateInvalidation } from '@/lib/invalidation-engine';
 import { buildDecisionTrace } from '@/lib/decision-trace';
 import { initializePersistentMemory, rememberAnalystOpinions, evaluateMaturedPredictions } from '@/lib/analyst-memory';
+import { detectMarketRegime } from '@/lib/market-regime';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
