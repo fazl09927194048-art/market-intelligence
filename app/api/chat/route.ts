@@ -59,7 +59,7 @@ function normalizeHistory(value: unknown) {
 
 function isCloseCommand(message:string){const t=message.toLowerCase();return ['close','exit','sell','ببند','ببندش','بستن معامله','خارج شو','خروج بزن','سود کافی'].some(x=>t.includes(x))||(t.includes('ضرر')&&t.includes('ببند'))}
 async function executeCloseCommand(symbol:string,reason:string){
- const userId=await getSessionUserId();
+ const jar=await cookies(); let userId=jar.get('fli_session')?.value; if(!userId){userId=crypto.randomUUID(); jar.set('fli_session',userId,{httpOnly:true,sameSite:'lax',secure:process.env.NODE_ENV==='production',maxAge:31536000,path:'/'});}
  const exchanges=await listExchanges(userId);
  if(exchanges.length!==1)return {ok:false,status:409,text:'برای بستن معامله، ابتدا یک صرافی فعال را انتخاب کن؛ بیش از یک اتصال وجود دارد.'};
  const x=await getExchange(userId,String(exchanges[0].id));
