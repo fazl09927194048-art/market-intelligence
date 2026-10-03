@@ -57,12 +57,16 @@ async function testKey(apiKey: string) {
   if (!discovered.ok) return discovered;
   const preferred = [process.env.OPENAI_MODEL, process.env.OPENAI_FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-4.1-mini', 'gpt-4o-mini', 'gpt-4o']
     .filter((x): x is string => Boolean(x));
-  const candidates = [...new Set([...preferred.filter(id => discovered.models.includes(id)), ...discovered.models])]
+  const discoveredCandidates = discovered.models
     .filter(id => /^(gpt-|chatgpt-)/i.test(id))
     .sort((a,b) => rankModel(a) - rankModel(b));
+  const candidates = [...new Set([
+    ...preferred.filter(id => discoveredCandidates.includes(id)),
+    ...discoveredCandidates,
+  ])].slice(0, 5);
 
   let last = { ok: false, status: 400, detail: 'The key can access the API, but no listed model accepted a Responses API test request.' };
-  for (const model of candidates.slice(0, 30)) {
+  for (const model of candidates) {
     try {
       const result = await testModel(apiKey, model);
       if (result.ok) return { ok: true, status: 200, detail: '', model, models: discovered.models };
