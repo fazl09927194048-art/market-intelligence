@@ -32,7 +32,7 @@ export function SettingsPage(){
     </div>
    </div>
   </div>
- </main>
+ </div>
 }
 
 export default SettingsPage;
