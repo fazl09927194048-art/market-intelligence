@@ -46,7 +46,7 @@ async function testModel(apiKey: string, model: string) {
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     cache: 'no-store',
     signal: AbortSignal.timeout(15000),
-    body: JSON.stringify({ model, input: 'Reply with OK.', max_output_tokens: 8 }),
+    body: JSON.stringify({ model, input: 'Reply with OK.', max_output_tokens: 64 }),
   });
   const detail = await response.text();
   return { ok: response.ok, status: response.status, detail: detail.slice(0, 700) };
