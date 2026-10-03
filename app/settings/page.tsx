@@ -1,7 +1,8 @@
 'use client';
 import React,{useEffect,useState} from 'react';
 
-export default function SettingsPage(){
+export function SettingsPage(){
+
  const [configured,setConfigured]=useState(false),[masked,setMasked]=useState(''),[key,setKey]=useState(''),[busy,setBusy]=useState(true),[saving,setSaving]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState('');
  const load=async()=>{setBusy(true);try{const r=await fetch('/api/settings/ai-key',{cache:'no-store'});const d=await r.json();setConfigured(Boolean(d.configured));setMasked(d.maskedKey||'');if(!r.ok)throw new Error(d.error||'Settings unavailable')}catch(e){setError(e instanceof Error?e.message:'Settings unavailable')}finally{setBusy(false)}};
  useEffect(()=>{void load()},[]);
@@ -33,3 +34,5 @@ export default function SettingsPage(){
   </div>
  </main>
 }
+
+export default SettingsPage;
