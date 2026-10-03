@@ -15,6 +15,7 @@ import { evaluateInvalidation } from '@/lib/invalidation-engine';
 import { buildDecisionTrace } from '@/lib/decision-trace';
 import { initializePersistentMemory, rememberAnalystOpinions, evaluateMaturedPredictions } from '@/lib/analyst-memory';
 import { detectMarketRegime } from '@/lib/market-regime';
+import { analyzeLiquidityBrain } from '@/lib/liquidity-brain';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -101,6 +102,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const newsImpact = summarizeNewsImpact(assetNews, events);
   const eventReaction = assessEventReaction(assetNews, risk);
   const marketRegime = detectMarketRegime(advanced, technical);
+  const liquidityBrain = analyzeLiquidityBrain(advanced);
   const analysts = await runAnalystBrain(advanced, technical, assetNews, safeInterval);
   const currentPrice = advanced.futures.price ?? advanced.spot.price;
   const regime = marketRegime.regime;
@@ -137,6 +139,8 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   if (invalidation.status === 'NO_TRADE') warnings.push(`Invalidation engine blocked directional execution: ${invalidation.reasons.join(' | ')}`);
   else if (invalidation.status === 'CAUTION') warnings.push(`Invalidation engine raised caution: ${invalidation.reasons.join(' | ')}`);
   const intelligenceScore=buildMarketIntelligenceScore(technical,multiTimeFrame,risk,signal,scenarios,newsImpact,advanced);
+  if (liquidityBrain.bias !== 'NEUTRAL' && liquidityBrain.confidence >= 65) warnings.push(`Liquidity brain: ${liquidityBrain.bias} pressure (${liquidityBrain.confidence}% confidence, score ${liquidityBrain.score}).`);
+  warnings.push(...liquidityBrain.warnings);
   const finalSignal = invalidation.finalSignal === signal.signal ? signal : {
     ...signal,
     signal: 'NO TRADE' as const,
@@ -172,7 +176,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,marketRegime,intelligenceScore,tradePlan,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
+  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,marketRegime,liquidityBrain,intelligenceScore,tradePlan,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null,chartVision?:ChartVisionContext|null){
