@@ -141,7 +141,9 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const intelligenceScore=buildMarketIntelligenceScore(technical,multiTimeFrame,risk,signal,scenarios,newsImpact,advanced);
   if (liquidityBrain.bias !== 'NEUTRAL' && liquidityBrain.confidence >= 65) warnings.push(`Liquidity brain: ${liquidityBrain.bias} pressure (${liquidityBrain.confidence}% confidence, score ${liquidityBrain.score}).`);
   warnings.push(...liquidityBrain.warnings);
-  const finalSignal = invalidation.finalSignal === signal.signal ? signal : {
+  const liquidityConflict = (liquidityBrain.confidence >= 70 && liquidityBrain.bias !== 'NEUTRAL' && ((liquidityBrain.bias === 'BUY' && signal.signal === 'SHORT') || (liquidityBrain.bias === 'SELL' && signal.signal === 'LONG')));
+  if (liquidityConflict) warnings.push(`Liquidity/order-flow conflict blocked directional execution: ${liquidityBrain.bias} liquidity pressure opposes ${signal.signal}.`);
+  const finalSignal = invalidation.finalSignal === signal.signal && !liquidityConflict ? signal : {
     ...signal,
     signal: 'NO TRADE' as const,
     confidence: Math.min(signal.confidence, gatedConfidence),
@@ -152,7 +154,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     invalidation: invalidation.reasons[0] ?? signal.invalidation,
   };
   const tradeSide = finalSignal.signal === 'LONG' || finalSignal.signal === 'SHORT' ? finalSignal.signal : 'NO TRADE';
-  const entryAllowed = invalidation.canEnter && tradeSide !== 'NO TRADE' && Number.isFinite(Number(finalSignal.entry));
+  const entryAllowed = invalidation.canEnter && !liquidityConflict && tradeSide !== 'NO TRADE' && Number.isFinite(Number(finalSignal.entry));
   const horizonMinutes = Math.max(5, Math.round(horizonMs(safeInterval) / 60000));
   const entryAt = entryAllowed ? new Date().toISOString() : null;
   const exitAt = entryAllowed ? new Date(Date.now() + horizonMinutes * 60000).toISOString() : null;
