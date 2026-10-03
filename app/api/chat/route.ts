@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
 
     const symbol = safeText(body?.symbol || context.match(/\"symbol\"\s*:\s*\"([A-Z0-9]+)\"/)?.[1] || 'BTCUSDT', 20).toUpperCase();
     if (isCloseCommand(message) && !imageData) {
-      const close = await executeCloseCommand(symbol, message).catch((e:any)=>({ok:false,status:502,text:e instanceof Error?e.message:'Close action failed'}));
+      const close:any = await executeCloseCommand(symbol, message).catch((e:any)=>({ok:false,status:502,text:e instanceof Error?e.message:'Close action failed'}));
       if (close.ok) return NextResponse.json({ok:true,text:close.text,provider:'internal-engine',model:'DRO-INTERNAL',independent:true,action:'CLOSE_POSITION',mode:close.mode,intent:close.intent||null,order:close.order||null,generatedAt:new Date().toISOString()},{status:close.status});
       return jsonError(close.text, close.status);
     }
