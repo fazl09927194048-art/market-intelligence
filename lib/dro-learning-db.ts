@@ -56,7 +56,7 @@ export async function evaluateDuePredictions(fetchDirection: (row: { symbol: str
   if (!db) return { evaluated: 0, skipped: 0, persistent: false };
   await ensureDroLearningSchema();
   const { rows } = await db.query(
-    `SELECT id,symbol,interval,direction,created_at,target,stop_loss
+    `SELECT id,symbol,interval,direction,created_at,entry,target,stop_loss
      FROM dro_predictions
      WHERE outcome IS NULL AND created_at < NOW() - INTERVAL '15 minutes'
      ORDER BY created_at ASC LIMIT $1`, [Math.max(1, Math.min(limit, 200))]
