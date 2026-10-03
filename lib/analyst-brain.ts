@@ -85,14 +85,14 @@ export function buildDecisionAudit(opinions:AnalystOpinion[], scenarios?:{domina
   return {coverage:usable.length,directions:byDirection,familyImpact,strongest,contradictions,evidence,conflicts,dominantScenario:scenarios?.dominant??null,scenarioProbabilities:scenarios?.scenarios?.map(s=>({id:s.id,probability:s.probability}))??[]};
 }
 
-export function synthesizeOpinions(opinions:AnalystOpinion[]){
+export function synthesizeOpinions(opinions:AnalystOpinion[],symbol?:string,regime?:string,interval?:string){
   const usable=opinions.filter(x=>x.id!=='critic'&&x.id!=='verifier');
-  const weighted=usable.reduce((s,x)=>s+x.score*(x.confidence/100)*getAdaptiveAnalystWeight(x.id),0);
+  const weighted=usable.reduce((s,x)=>s+x.score*(x.confidence/100)*getAdaptiveAnalystWeight(x.id,regime,symbol,interval),0);
   const weight=usable.reduce((s,x)=>s+(x.confidence/100)*getAdaptiveAnalystWeight(x.id),0)||1;
   const score=weighted/weight;
   const long=usable.filter(x=>x.direction==='LONG').length, short=usable.filter(x=>x.direction==='SHORT').length;
   const agreement=Math.round(Math.max(long,short)/Math.max(1,usable.length)*100);
-  const reliability=usable.length?usable.reduce((s,x)=>s+getAdaptiveAnalystWeight(x.id),0)/usable.length:1;
+  const reliability=usable.length?usable.reduce((s,x)=>s+getAdaptiveAnalystWeight(x.id,regime,symbol,interval),0)/usable.length:1;
   const calibrated=agreement*0.35+Math.abs(score)*0.55+Math.max(0,Math.min(100,(reliability-0.55)/0.9*100))*0.10;
   return {direction:score>=25?'LONG':score<=-25?'SHORT':'NEUTRAL',score:Math.round(score),confidence:Math.round(Math.min(96,calibrated)),agreement,long,short,reliability:Number(reliability.toFixed(3)),dissent:usable.filter(x=>Math.abs(x.score-score)>45).sort((a,b)=>b.confidence-a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence,weight:getAdaptiveAnalystWeight(x.id)}))};
 }
