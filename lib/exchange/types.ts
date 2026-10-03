@@ -1,0 +1,8 @@
+export type ExchangeName='binance';
+export type AccountType='SPOT'|'FUTURES';
+export type ExecutionMode='PAPER'|'CONFIRM'|'AUTONOMOUS';
+export type OrderSide='BUY'|'SELL';
+export type OrderType='MARKET'|'LIMIT'|'STOP_LOSS'|'STOP_LOSS_LIMIT'|'TAKE_PROFIT'|'TAKE_PROFIT_LIMIT';
+export interface ExchangeCredentials{apiKey:string;apiSecret:string;passphrase?:string;environment:'LIVE'|'TESTNET';accountType:AccountType}
+export interface ExchangePermissions{marketData:boolean;accountRead:boolean;trading:boolean;withdrawals:boolean;raw?:Record<string,unknown>}
+export interface ExchangeAdapter{name:ExchangeName;connect(c:ExchangeCredentials):Promise<void>;testConnection(c:ExchangeCredentials):Promise<{ok:boolean;message:string;permissions?:ExchangePermissions}>;getAccount(c:ExchangeCredentials):Promise<any>;getBalance(c:ExchangeCredentials):Promise<any>;getMarkets(c:ExchangeCredentials):Promise<any>;getTicker(c:ExchangeCredentials,symbol:string):Promise<any>;getOrderBook(c:ExchangeCredentials,symbol:string,limit?:number):Promise<any>;getOpenOrders(c:ExchangeCredentials,symbol?:string):Promise<any>;getOrderHistory(c:ExchangeCredentials,symbol:string,limit?:number):Promise<any>;getPositions(c:ExchangeCredentials):Promise<any>;createOrder(c:ExchangeCredentials,p:Record<string,unknown>):Promise<any>;cancelOrder(c:ExchangeCredentials,symbol:string,orderId?:string,clientOrderId?:string):Promise<any>;getOrderStatus(c:ExchangeCredentials,symbol:string,orderId?:string,clientOrderId?:string):Promise<any>}
