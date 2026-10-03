@@ -50,3 +50,33 @@ export async function getPersistentMetrics(symbol?: string) {
   const wl=Number(r.wins||0)+Number(r.losses||0);
   return {samples:Number(r.samples||0),evaluated,wins:Number(r.wins||0),losses:Number(r.losses||0),neutral:Number(r.neutral||0),accuracy:evaluated?Number(((Number(r.directional||0)/evaluated)*100).toFixed(2)):0,winRate:wl?Number(((Number(r.wins||0)/wl)*100).toFixed(2)):0,avgConfidence:Number(Number(r.avg_confidence||0).toFixed(2))};
 }
+
+export async function evaluateDuePredictions(fetchDirection: (symbol: string, interval: string) => Promise<string | null>, limit = 50) {
+  const db = getPool();
+  if (!db) return { evaluated: 0, skipped: 0, persistent: false };
+  await ensureDroLearningSchema();
+  const { rows } = await db.query(
+    `SELECT id,symbol,interval,direction,created_at,target,stop_loss
+     FROM dro_predictions
+     WHERE outcome IS NULL AND created_at < NOW() - INTERVAL '15 minutes'
+     ORDER BY created_at ASC LIMIT $1`, [Math.max(1, Math.min(limit, 200))]
+  );
+  let evaluated = 0, skipped = 0;
+  for (const row of rows) {
+    try {
+      const actual = await fetchDirection(row.symbol, row.interval);
+      if (!actual) { skipped++; continue; }
+      const normalized = String(actual).toUpperCase();
+      const direction = String(row.direction).toUpperCase();
+      let outcome = 'NEUTRAL';
+      if (direction === normalized) outcome = 'WIN';
+      else if (direction !== 'NO TRADE' && normalized !== 'NO TRADE') outcome = 'LOSS';
+      await db.query(
+        `UPDATE dro_predictions SET outcome=$2,actual_direction=$3,evaluated_at=NOW() WHERE id=$1`,
+        [row.id, outcome, normalized]
+      );
+      evaluated++;
+    } catch { skipped++; }
+  }
+  return { evaluated, skipped, persistent: true };
+}
