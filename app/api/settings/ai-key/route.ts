@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       }, { status: test.status === 429 ? 429 : 400 });
     }
     await saveUserAIKey(key);
-    return NextResponse.json({ ok: true, configured: true, maskedKey: maskAIKey(key), provider: 'OpenAI', model: test.model || null });
+    return NextResponse.json({ ok: true, configured: true, maskedKey: maskAIKey(key), provider: 'OpenAI', model: ('model' in test ? test.model : null) });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Could not save AI key.' }, { status: 500 });
   }
