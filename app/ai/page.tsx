@@ -14,7 +14,8 @@ const directionClass=(d?:string)=>d==='LONG'||d==='BULLISH'?'up':d==='SHORT'||d=
 const safeText=(v:any):string=>{if(v==null)return '—';if(typeof v==='string'||typeof v==='number'||typeof v==='boolean')return String(v);if(Array.isArray(v))return v.map(safeText).filter(x=>x!=='—').join(' | ')||'—';try{return JSON.stringify(v)}catch{return '—'}};
 const safeDate=(v:any):string=>{if(!v)return 'WAIT';const d=new Date(v);return Number.isNaN(d.getTime())?'WAIT':d.toLocaleString()};
 
-export default function AIPage(){
+export function AIPage(){
+
  const [symbol,setSymbol]=useState('BTCUSDT'),[interval,setIntervalValue]=useState('15m'),[data,setData]=useState<Intelligence|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[fa,setFa]=useState(false),[filter,setFilter]=useState('ALL'),[query,setQuery]=useState(''),[imageData,setImageData]=useState(''),[imageName,setImageName]=useState(''),[imageLoading,setImageLoading]=useState(false),[imageResult,setImageResult]=useState<any>(null); const imageInputRef=useRef<HTMLInputElement>(null);
  const refresh=useCallback(async()=>{
   setLoading(true);setError('');
@@ -176,3 +177,5 @@ export default function AIPage(){
   <footer className="aiFooter">MARKET/INTEL · FLI ADVANCED MARKET INTELLIGENCE AI · informational intelligence only</footer>
  </main>
 }
+
+export default AIPage;
