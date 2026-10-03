@@ -1,34 +1,14 @@
 'use client';
-
-import React from 'react';
-
-export default function SettingsPage(){
-  return <div style={{minHeight:'100vh',background:'#06080c',color:'#e8edf2',padding:'28px 18px',fontFamily:'system-ui,sans-serif'}}>
-    <div style={{maxWidth:760,margin:'0 auto'}}>
-      <a href="/" style={{color:'#8ff5ae',textDecoration:'none',fontWeight:800}}>← MARKET/INTEL</a>
-      <div style={{marginTop:38,border:'1px solid #1c2924',borderRadius:20,padding:'28px',background:'#0b1110'}}>
-        <div style={{fontSize:12,color:'#8ff5ae',fontWeight:900,letterSpacing:2}}>DRO SETTINGS</div>
-        <h1 style={{fontSize:32,margin:'8px 0'}}>Independent DRO</h1>
-        <p style={{color:'#9aa59f',lineHeight:1.8}}>
-          در این نسخه DRO برای کارکرد اصلی خود به API Key خارجی نیاز ندارد. موتور داخلی خودش داده بازار، تحلیل تکنیکال،
-          چندتایم‌فریم، جریان سفارش، مشتقات، اخبار، سناریوها، ریسک، ۳۳ تحلیلگر تخصصی، حافظه پیش‌بینی و گیت ابطال را اجرا می‌کند.
-        </p>
-        <div style={{marginTop:24,padding:18,borderRadius:14,background:'#07130d',border:'1px solid #183a27'}}>
-          <b style={{color:'#8ff5ae'}}>● DRO INTERNAL ENGINE — ACTIVE</b>
-          <p style={{margin:'10px 0 0',color:'#9aa59f'}}>API Key خارجی: لازم نیست · Provider: Internal Intelligence Engine</p>
-        </div>
-        <div style={{marginTop:22,padding:16,borderRadius:14,background:'#090d12',border:'1px solid #202b33',lineHeight:1.8,color:'#9aa59f'}}>
-          <b style={{color:'#e8edf2'}}>معماری فعلی</b><br/>
-          Market Data → Technical/Flow/Derivatives → 33 Specialist Analysts → Consensus → Scenarios → Risk → Invalidation → DRO Decision Layer
-        </div>
-        <div style={{display:'flex',gap:10,marginTop:24,flexWrap:'wrap'}}>
-          <a href="/ai" style={{padding:'12px 18px',borderRadius:12,background:'#8ff5ae',color:'#061008',fontWeight:900,textDecoration:'none'}}>OPEN DRO</a>
-          <a href="/" style={{padding:'12px 18px',border:'1px solid #27342e',borderRadius:12,color:'#e8edf2',fontWeight:800,textDecoration:'none'}}>DASHBOARD</a>
-        </div>
-        <div style={{marginTop:28,paddingTop:20,borderTop:'1px solid #1c2924',color:'#7f8b86',fontSize:13,lineHeight:1.7}}>
-          کلیدهای خارجی در این نسخه در جریان اصلی DRO استفاده نمی‌شوند. اگر بعداً مدل خارجی اضافه شود، به‌صورت یک Provider اختیاری و جداگانه اضافه خواهد شد.
-        </div>
-      </div>
-    </div>
-  </div>
-}
+import React,{useEffect,useState} from 'react';
+type Ex={id:string,name:string,environment:string,account_type:string,permissions:any,connected:boolean,last_sync:string};
+export default function SettingsPage(){const [xs,setXs]=useState<Ex[]>([]);const [apiKey,setApiKey]=useState('');const [secret,setSecret]=useState('');const [env,setEnv]=useState('LIVE');const [busy,setBusy]=useState(false);const [msg,setMsg]=useState('');const [detail,setDetail]=useState<any>(null);
+async function load(){const r=await fetch('/api/exchanges',{cache:'no-store'});const j=await r.json();if(j.ok)setXs(j.exchanges||[]);else setMsg(j.error||'Exchange storage unavailable')}
+useEffect(()=>{load()},[]);
+async function connect(){setBusy(true);setMsg('');try{const r=await fetch('/api/exchanges',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({exchange:'binance',apiKey,apiSecret:secret,environment:env,accountType:'SPOT'})});const j=await r.json();if(j.ok){setMsg('CONNECTED — Binance API verified.');setApiKey('');setSecret('');await load()}else setMsg(j.error||'CONNECTION FAILED')}catch(e){setMsg('CONNECTION FAILED')}finally{setBusy(false)}}
+async function view(id:string,op:string){const r=await fetch('/api/exchanges/'+id+'?op='+op+'&symbol=BTCUSDT');const j=await r.json();setDetail(j)}
+return <main style={{minHeight:'100vh',background:'#06080c',color:'#e8edf2',padding:24,fontFamily:'system-ui,sans-serif'}}><div style={{maxWidth:1000,margin:'0 auto'}}><a href="/" style={{color:'#8ff5ae'}}>← FLI</a><h1 style={{fontSize:34,marginBottom:4}}>Exchange Manager</h1><p style={{color:'#9aa59f'}}>اتصال واقعی صرافی از Backend؛ Secret هرگز به DRO یا Frontend ارسال نمی‌شود.</p>
+<section style={{marginTop:24,padding:22,border:'1px solid #26332d',borderRadius:18,background:'#0b1110'}}><h2>Add Binance</h2><label>API Key<input value={apiKey} onChange={e=>setApiKey(e.target.value)} autoComplete="off" style={input}/></label><label>API Secret<input type="password" value={secret} onChange={e=>setSecret(e.target.value)} autoComplete="new-password" style={input}/></label><label>Environment<select value={env} onChange={e=>setEnv(e.target.value)} style={input}><option>LIVE</option><option>TESTNET</option></select></label><button disabled={busy} onClick={connect} style={button}>{busy?'TESTING…':'TEST CONNECTION + CONNECT'}</button>{msg&&<div style={{marginTop:14,color:msg.startsWith('CONNECTED')?'#8ff5ae':'#ff8e8e'}}>{msg}</div>}</section>
+<section style={{marginTop:24}}><h2>Connected Exchanges</h2>{xs.length===0?<div style={card}>No exchange connected.</div>:xs.map(x=><div key={x.id} style={card}><div style={{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap'}}><div><b>{x.name.toUpperCase()}</b><div style={{color:'#8ff5ae',marginTop:5}}>● {x.connected?'CONNECTED':'DISCONNECTED'}</div><small>{x.environment} · {x.account_type}</small></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button onClick={()=>view(x.id,'account')} style={small}>Account</button><button onClick={()=>view(x.id,'balance')} style={small}>Balance</button><button onClick={()=>view(x.id,'orders')} style={small}>Orders</button><button onClick={()=>view(x.id,'positions')} style={small}>Positions</button></div></div><div style={{marginTop:14,color:'#9aa59f'}}>Market Data ✓ · Account Read {x.permissions?.accountRead?'✓':'✗'} · Trading {x.permissions?.trading?'✓':'✗'} · Withdrawals {x.permissions?.withdrawals?'✓':'✗'}</div></div>)}</section>
+{detail&&<section style={{marginTop:24,...card,whiteSpace:'pre-wrap',overflow:'auto'}}><button onClick={()=>setDetail(null)} style={small}>Close</button><pre>{JSON.stringify(detail,null,2)}</pre></section>}
+</div></main>}
+const input:any={display:'block',width:'100%',boxSizing:'border-box',margin:'7px 0 16px',padding:12,borderRadius:10,border:'1px solid #2a3932',background:'#070b0a',color:'#fff'};const button:any={padding:'13px 18px',border:0,borderRadius:10,background:'#8ff5ae',color:'#061008',fontWeight:900};const small:any={padding:'8px 11px',borderRadius:9,border:'1px solid #33443b',background:'#101713',color:'#dce7e0'};const card:any={padding:18,border:'1px solid #26332d',borderRadius:16,background:'#0b1110',marginTop:12};
