@@ -143,8 +143,4 @@ export async function POST(request: NextRequest) {
       ok: false,
       error: e instanceof Error ? e.message : 'Could not save AI key.',
     }, { status: 500 });
-  }
-}  } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : 'Could not save AI key.' }, { status: 500 });
-  }
-}
+  }\n}
