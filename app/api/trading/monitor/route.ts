@@ -25,6 +25,6 @@ export async function GET(req:NextRequest){
   const price=Number(ticker?.lastPrice||ticker?.price||0);
   if(qty<=0||!Number.isFinite(price)) return NextResponse.json({ok:true,hasPosition:false,symbol,price});
   const avgEntry=cost/qty,pnl=qty*price-cost,pnlPct=cost?((price-avgEntry)/avgEntry)*100:0;
-  return NextResponse.json({ok:true,hasPosition:true,symbol,price,quantity:qty,avgEntry,pnl,pnlPct,alert:pnlPct>=1?'PROFIT':pnlPct<=-1?'LOSS':'NORMAL',checkedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store'}});
+  const alert=pnlPct>=1?'PROFIT':pnlPct<=-1?'LOSS':'NORMAL'; const action=pnlPct>=3?'TAKE_PROFIT_REVIEW':pnlPct<=-2?'RISK_REVIEW':'HOLD'; return NextResponse.json({ok:true,hasPosition:true,symbol,price,quantity:qty,avgEntry,pnl,pnlPct,alert,action,notification:alert==='PROFIT'?`Position is in profit (${pnlPct.toFixed(2)}%). DRO recommends reviewing profit protection.`:alert==='LOSS'?`Position is in loss (${pnlPct.toFixed(2)}%). DRO recommends reviewing risk and invalidation.`:`Position is near neutral (${pnlPct.toFixed(2)}%).`,checkedAt:new Date().toISOString()},{headers:{'Cache-Control':'no-store'}});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Monitor failed'},{status:502})}
 }
