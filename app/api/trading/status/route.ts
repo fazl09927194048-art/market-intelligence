@@ -1,0 +1,2 @@
+import {NextResponse} from 'next/server';import {getSessionUserId} from '@/lib/exchange/session';import {listExchanges} from '@/lib/exchange/db';
+export const dynamic='force-dynamic';export async function GET(){try{const xs=await listExchanges(await getSessionUserId());return NextResponse.json({ok:true,tradingEngine:'READY',emergencyStop:false,exchanges:xs})}catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Status unavailable'},{status:503})}}
