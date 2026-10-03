@@ -2,8 +2,8 @@
 import React,{useCallback,useEffect,useState} from 'react';
 import AIChat from '@/app/components/AIChat';
 import DROSite from '@/app/components/DROSite';
-import {AIPage} from '@/app/ai/page';
-import {SettingsPage} from '@/app/settings/page';
+import AIPage from '@/app/ai/page';
+import SettingsPage from '@/app/settings/page';
 type Market={symbol:string;name:string;price:number;change24h:number;source?:string;quality?:string};
 type LivePrice={symbol:string;price:number;change24h:number;volume24h?:number;high24h?:number;low24h?:number;bid?:number;ask?:number;trades?:number;exchangeTime?:number;source?:string};
 type Loop={symbol:string;interval:string;generatedAt:string;dataValid:boolean;cycleId?:string;signal?:any;forecast?:any;consensus?:any;risk?:any;multiTimeframe?:any;chartPatterns?:any;newsImpact?:any;eventReaction?:any;warnings?:string[];news?:any[]};
