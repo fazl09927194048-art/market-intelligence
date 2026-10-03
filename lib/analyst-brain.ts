@@ -56,9 +56,8 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
-    const regimeMultiplier:number = (()=>{ const id=a.id; const r=regimeSnapshot.regime; const aligned=(r==='TREND_UP'&&(id==='trend'||id==='swing'||id==='momentum'))||(r==='TREND_DOWN'&&(id==='trend'||id==='swing'||id==='momentum'))||(r==='BREAKOUT'&&(id==='breakout'||id==='volume'||id==='orderflow'))||(r==='REVERSAL'&&(id==='mean-reversion'||id==='pattern'||id==='liquidation'))||(r==='HIGH_VOLATILITY'&&(id==='risk'||id==='liquidation'||id==='orderflow'))||(r==='RANGE'&&(id==='mean-reversion'||id==='liquidity'||id==='support'||id==='resistance'))||(r==='LOW_VOLATILITY'&&(id==='breakout'||id==='volatility')); return aligned?1.12:0.94; })();
-    const rawScore=s, memoryWeight=memory.effectiveWeight, effectiveWeight=memoryWeight*regimeMultiplier;
-    if(regimeMultiplier!==1) evidence.push(`Regime weighting: ${regimeSnapshot.regime} × ${regimeMultiplier.toFixed(2)}.`);
+    const rawScore=s, effectiveWeight=memory.effectiveWeight;
+    evidence.push(`Adaptive weighting: ${regimeSnapshot.regime} × symbol/timeframe performance, recency and sample-size gate.`);
     s=rawScore*effectiveWeight;
     if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${effectiveWeight.toFixed(3)}.`);
     if (memory.profile.evaluatedPredictions>=12 && effectiveWeight!==memory.profile.currentWeight) evidence.push(`Regime-aware adjustment active for ${regime}: ${effectiveWeight.toFixed(3)}.`);
