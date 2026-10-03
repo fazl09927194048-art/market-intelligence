@@ -94,5 +94,5 @@ export function synthesizeOpinions(opinions:AnalystOpinion[],symbol?:string,regi
   const agreement=Math.round(Math.max(long,short)/Math.max(1,usable.length)*100);
   const reliability=usable.length?usable.reduce((s,x)=>s+getAdaptiveAnalystWeight(x.id,regime,symbol,interval),0)/usable.length:1;
   const calibrated=agreement*0.35+Math.abs(score)*0.55+Math.max(0,Math.min(100,(reliability-0.55)/0.9*100))*0.10;
-  return {direction:score>=25?'LONG':score<=-25?'SHORT':'NEUTRAL',score:Math.round(score),confidence:Math.round(Math.min(96,calibrated)),agreement,long,short,reliability:Number(reliability.toFixed(3)),dissent:usable.filter(x=>Math.abs(x.score-score)>45).sort((a,b)=>b.confidence-a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence,weight:getAdaptiveAnalystWeight(x.id)}))};
+  return {direction:score>=25?'LONG':score<=-25?'SHORT':'NEUTRAL',score:Math.round(score),confidence:Math.round(Math.min(96,calibrated)),agreement,long,short,reliability:Number(reliability.toFixed(3)),dissent:usable.filter(x=>Math.abs(x.score-score)>45).sort((a,b)=>b.confidence-a.confidence).slice(0,8).map(x=>({id:x.id,direction:x.direction,score:x.score,confidence:x.confidence,weight:getAdaptiveAnalystWeight(x.id,regime,symbol,interval)}))};
 }
