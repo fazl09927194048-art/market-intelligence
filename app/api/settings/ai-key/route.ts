@@ -16,9 +16,23 @@ async function testKey(apiKey: string) {
     return { ok: false, status: modelsResponse.status, detail: detail.slice(0, 500) };
   }
 
-  const configured = [process.env.OPENAI_MODEL, process.env.OPENAI_FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-4.1-mini']
+  const preferred = [process.env.OPENAI_MODEL, process.env.OPENAI_FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-4.1-mini']
     .filter((x): x is string => Boolean(x))
     .filter((x, i, a) => a.indexOf(x) === i);
+  let discovered: string[] = [];
+  try {
+    const models = await modelsResponse.json();
+    discovered = Array.isArray(models?.data)
+      ? models.data.map((m: any) => typeof m?.id === 'string' ? m.id : '').filter(Boolean)
+      : [];
+  } catch {}
+  const likely = discovered
+    .filter(id => /^(gpt-|chatgpt-)/i.test(id))
+    .sort((a,b) => {
+      const rank=(id:string)=>preferred.includes(id)?0:/gpt-6-luna/i.test(id)?1:/gpt-6-sol/i.test(id)?2:/gpt-5/i.test(id)?3:/gpt-4.1/i.test(id)?4:/gpt-4o/i.test(id)?5:10;
+      return rank(a)-rank(b);
+    });
+  const configured = [...new Set([...preferred.filter(id => discovered.length === 0 || discovered.includes(id)), ...likely])];
 
   let last = { ok: false, status: 400, detail: 'No compatible model could answer a test request.' };
   for (const model of configured) {
