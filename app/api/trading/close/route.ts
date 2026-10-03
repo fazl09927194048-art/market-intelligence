@@ -27,7 +27,7 @@ export async function POST(req:NextRequest){
 
   const baseAsset=symbol.replace(/USDT$|USDC$|BUSD$|FDUSD$/,'');
   if(!baseAsset||baseAsset===symbol) return NextResponse.json({ok:false,error:'Unsupported quote asset for automatic spot close.'},{status:400});
-  const balances=await exchangeManager.getBalance(x.record.name,x.credentials);
+  const balances=await exchangeManager.balance(x.record.name,x.credentials);
   const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===baseAsset):null;
   const available=n(row?.free);
   if(available<=0) return NextResponse.json({ok:false,error:'No available spot balance to close for '+symbol+'.'},{status:409});
