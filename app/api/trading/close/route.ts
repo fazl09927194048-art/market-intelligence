@@ -1,4 +1,5 @@
 import {NextRequest,NextResponse} from 'next/server';
+import crypto from 'node:crypto';
 import {getSessionUserId} from '@/lib/exchange/session';
 import {getExchange,getTradingRisk,audit,listExchanges} from '@/lib/exchange/db';
 import {exchangeManager} from '@/lib/exchange/manager';
