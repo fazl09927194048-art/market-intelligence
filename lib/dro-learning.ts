@@ -8,6 +8,7 @@ type PredictionRecord = {
   entry?: number | null;
   target?: number | null;
   stopLoss?: number | null;
+  horizonMinutes?: number | null;
   outcome?: 'WIN' | 'LOSS' | 'NEUTRAL' | null;
   actualDirection?: string | null;
   evaluatedAt?: string | null;
