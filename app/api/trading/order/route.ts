@@ -1,8 +1,10 @@
+function modeWillBeAutonomous(requested:unknown,risk:any){return String(risk.execution_mode||requested||'PAPER').toUpperCase()==='AUTONOMOUS'}
 import {NextRequest,NextResponse} from 'next/server';
 import crypto from 'node:crypto';
 import {getSessionUserId} from '@/lib/exchange/session';
 import {getExchange,ensureExchangeSchema,db,audit,getTradingRisk} from '@/lib/exchange/db';
 import {exchangeManager} from '@/lib/exchange/manager';
+import {runIntelligenceCycle} from '@/lib/intelligence-loop';
 export const dynamic='force-dynamic';
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
 export async function POST(req:NextRequest){
@@ -14,6 +16,33 @@ export async function POST(req:NextRequest){
   if((quantity===undefined||quantity<=0)&&(quoteQuantity===undefined||quoteQuantity<=0)) return NextResponse.json({ok:false,error:'A positive quantity or quoteOrderQty is required.'},{status:400});
   if(type==='LIMIT'&&(price===undefined||price<=0)) return NextResponse.json({ok:false,error:'A valid limit price is required.'},{status:400});
   const risk=await getTradingRisk(userId);
+  // DRO autonomous execution must be backed by a fresh intelligence cycle, not a raw signal.
+  let droGuard:any=null;
+  if(modeWillBeAutonomous(b.executionMode, risk)) {
+   const cycle=await runIntelligenceCycle(symbol, String(b.interval||'15m'));
+   const plan=cycle.tradePlan;
+   const requestedSide=side==='BUY'?'LONG':'SHORT';
+   const confidence=Number(plan?.confidence||0);
+   const rr=Number(plan?.riskReward||0);
+   const entry=Number(plan?.entry);
+   const stop=Number(plan?.stopLoss);
+   const tp=Number(plan?.takeProfit);
+   const validNumbers=[entry,stop,tp].every(Number.isFinite);
+   const sideMatch=String(plan?.side||'NO TRADE')===requestedSide;
+   const fresh=Date.now()-new Date(String(cycle.generatedAt||'')).getTime()<=120000;
+   const minConfidence=65;
+   const minRR=1.5;
+   if(!fresh||!cycle.dataValid||plan?.status!=='SIGNAL'||!plan?.invalidation||!sideMatch||!validNumbers||confidence<minConfidence||rr<minRR) {
+    return NextResponse.json({ok:false,error:'DRO TRADE GUARD BLOCKED THE ORDER: fresh multi-factor confirmation, valid SL/TP, direction match, data validity, confidence and risk/reward requirements were not satisfied.',droGuard:{status:'BLOCKED',confidence,requiredConfidence:minConfidence,riskReward:rr,requiredRiskReward:minRR,sideMatch,validNumbers,fresh,dataValid:Boolean(cycle.dataValid),planStatus:plan?.status||'UNKNOWN'}},{status:409});
+   }
+   const stopDistance=Math.abs(entry-stop);
+   const estimatedQty=quantity??(quoteQuantity!/entry);
+   const estimatedRisk=estimatedQty*stopDistance;
+   if(!Number.isFinite(estimatedRisk)||estimatedRisk<=0||estimatedRisk>Number(risk.max_daily_loss_usd)) {
+    return NextResponse.json({ok:false,error:'DRO TRADE GUARD BLOCKED THE ORDER: estimated stop-loss risk exceeds the configured daily loss limit.',droGuard:{status:'BLOCKED',estimatedRisk,maxDailyLoss:Number(risk.max_daily_loss_usd)}},{status:403});
+   }
+   droGuard={status:'PASSED',cycleId:cycle.cycleId,confidence,riskReward:rr,entry,stopLoss:stop,takeProfit:tp,estimatedRisk,requiredConfidence:minConfidence,requiredRiskReward:minRR};
+  }
   if(risk.emergency_stop) return NextResponse.json({ok:false,error:'Emergency stop is active.'},{status:423});
   const mode=String(risk.execution_mode||'PAPER').toUpperCase();
   if(!['PAPER','CONFIRM','AUTONOMOUS'].includes(mode)) return NextResponse.json({ok:false,error:'Invalid execution mode.'},{status:500});
@@ -40,10 +69,11 @@ export async function POST(req:NextRequest){
   if(!risk.autonomous_enabled) return NextResponse.json({ok:false,error:'AUTONOMOUS mode is disabled in risk settings.'},{status:403});
   if(process.env.FLI_LIVE_TRADING_ENABLED!=='true') return NextResponse.json({ok:false,error:'Live execution is locked by the server.'},{status:403});
   if(!x.record.permissions?.trading) return NextResponse.json({ok:false,error:'Trading permission is disabled on this API key.'},{status:403});
+  if(!droGuard) return NextResponse.json({ok:false,error:'DRO execution guard is required for autonomous orders.'},{status:409});
   const result=await exchangeManager.createOrder(x.record.name,x.credentials,p);
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,quote_quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",[userId,exchangeId,symbol,side,type,quantity??null,quoteQuantity??null,price??null,clientOrderId,String(result.orderId||''),String(result.status||'ACKNOWLEDGED'),result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',String(result.status||'ACKNOWLEDGED'),'EXCHANGE_SUBMITTED',result]);
   await audit({userId,action:'CREATE_ORDER',exchange:x.record.name,symbol,source:'DRO_TOOL',result:'Submitted',status:String(result.status||'ACKNOWLEDGED')});
-  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId});
+  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId,droGuard});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Order failed'},{status:502})}
 }
