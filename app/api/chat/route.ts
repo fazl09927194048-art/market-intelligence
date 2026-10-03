@@ -7,7 +7,7 @@ import { getUserAIKey } from '@/lib/user-ai-key';
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-6-luna';
 const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-6-sol';
-const MODEL_CANDIDATES = Array.from(new Set([MODEL, FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-4.1-mini', 'gpt-4o'])).filter(Boolean);
+const MODEL_CANDIDATES = Array.from(new Set([MODEL, FALLBACK_MODEL])).filter(Boolean);
 const inFlight = new Map<string, Promise<{ status: number; body: any }>>();
 const liveCache = new Map<string, { at: number; data: AdvancedMarketData }>();
 const LIVE_TTL = 3000;
@@ -98,11 +98,12 @@ function modelRank(id:string) {
 
 async function callProviderWithFallback(apiKey: string, prompt: string, imageData?: string) {
   const accessible = await getAccessibleModels(apiKey);
+  const discovered = accessible.sort((a:string,b:string)=>modelRank(a)-modelRank(b));
   const candidates = [...new Set([
     ...MODEL_CANDIDATES.filter(m=>accessible.includes(m)),
-    ...accessible.sort((a:string,b:string)=>modelRank(a)-modelRank(b)),
-    ...MODEL_CANDIDATES,
-  ])].slice(0, 30);
+    ...discovered,
+  ])].slice(0, 5);
+  if (!candidates.length) return { ok: false, status: 502, detail: 'No compatible AI model was discovered for this API key. Configure OPENAI_MODEL/OPENAI_FALLBACK_MODEL or verify model access.' };
   let last:any = { ok: false, status: 502, detail: 'No compatible AI model was available.' };
   for (const model of candidates) {
     const result = await callProvider(apiKey, model, prompt, imageData);
