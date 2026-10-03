@@ -106,7 +106,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const regime = marketRegime.regime;
   rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined, safeInterval);
   const outcomeLearning = currentPrice && Number.isFinite(currentPrice) ? evaluateMaturedPredictions(safeSymbol, safeInterval, currentPrice, regime) : { evaluated: 0, skipped: 0 };
-  const consensus = synthesizeOpinions(analysts, symbol, marketRegime.regime, safeInterval);
+  const consensus = synthesizeOpinions(analysts, safeSymbol, marketRegime.regime, safeInterval);
   const decisionAudit = buildDecisionAudit(analysts, scenarios);
   const cycleId = `${safeSymbol}-${Date.now()}`;
   const qualityFactors = [
