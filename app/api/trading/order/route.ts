@@ -5,6 +5,7 @@ import {getSessionUserId} from '@/lib/exchange/session';
 import {getExchange,ensureExchangeSchema,db,audit,getTradingRisk} from '@/lib/exchange/db';
 import {exchangeManager} from '@/lib/exchange/manager';
 import {runIntelligenceCycle} from '@/lib/intelligence-loop';
+import {createTradeForOrder} from '@/lib/trade-lifecycle';
 export const dynamic='force-dynamic';
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
 export async function POST(req:NextRequest){
@@ -77,7 +78,12 @@ export async function POST(req:NextRequest){
   const result=await exchangeManager.createOrder(x.record.name,x.credentials,p);
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,quote_quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",[userId,exchangeId,symbol,side,type,quantity??null,quoteQuantity??null,price??null,clientOrderId,String(result.orderId||''),String(result.status||'ACKNOWLEDGED'),result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',String(result.status||'ACKNOWLEDGED'),'EXCHANGE_SUBMITTED',result]);
-  await audit({userId,action:'CREATE_ORDER',exchange:x.record.name,symbol,source:'DRO_TOOL',result:'Submitted',status:String(result.status||'ACKNOWLEDGED')});
-  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId,droGuard});
+  const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side,executionMode:mode,cycleId:droGuard?.cycleId,plannedEntry:droGuard?.entry,quantity:quantity??(quoteQuantity&&droGuard?.entry?quoteQuantity/Number(droGuard.entry):undefined),stopPrice:droGuard?.stopLoss,takeProfitPrice:droGuard?.takeProfit});
+  const remoteStatus=String(result.status||'ACKNOWLEDGED').toUpperCase();
+  const initialTradeState=remoteStatus==='FILLED'?'FILLED':remoteStatus==='PARTIALLY_FILLED'?'PARTIALLY_FILLED':'ACKNOWLEDGED';
+  await db().query("UPDATE trades SET state=$1,submitted_at=now(),updated_at=now() WHERE id=$2",[initialTradeState,tradeId]);
+  await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,'CREATED',initialTradeState,'ORDER_SUBMITTED','DRO_TOOL','Autonomous order accepted by exchange',result]);
+  await audit({userId,action:'CREATE_ORDER',exchange:x.record.name,symbol,orderId:String(result.orderId||clientOrderId),source:'DRO_TOOL',result:'Submitted and linked to trade lifecycle',status:remoteStatus});
+  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId,tradeId,droGuard});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Order failed'},{status:502})}
 }
