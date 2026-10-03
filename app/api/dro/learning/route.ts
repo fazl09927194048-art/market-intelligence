@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { persistEvaluation, getPersistentMetrics } from '@/lib/dro-learning-db';
 import { evaluatePrediction, getLearningMetrics, listPredictions, getEvolutionSnapshot } from '@/lib/dro-learning';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     service: 'DRO Learning Core',
-    metrics: getLearningMetrics(symbol || undefined),
+    metrics: (await getPersistentMetrics(symbol || undefined)) ?? getLearningMetrics(symbol || undefined),
     evolution: getEvolutionSnapshot(symbol || undefined),
     recent: listPredictions(symbol || undefined),
   }, { headers: { 'Cache-Control': 'no-store' } });
@@ -29,6 +30,7 @@ export async function POST(request: NextRequest) {
     }
     const evaluated = evaluatePrediction(predictionId, actualDirection, outcome as 'WIN' | 'LOSS' | 'NEUTRAL');
     if (!evaluated) return NextResponse.json({ ok: false, error: 'Prediction not found.' }, { status: 404 });
+    void persistEvaluation(evaluated).catch(() => undefined);
     return NextResponse.json({
       ok: true,
       evaluated,
