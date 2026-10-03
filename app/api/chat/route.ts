@@ -100,7 +100,7 @@ async function callProviderWithFallback(apiKey: string, prompt: string, imageDat
   const accessible = await getAccessibleModels(apiKey);
   const candidates = [...new Set([
     ...MODEL_CANDIDATES.filter(m=>accessible.includes(m)),
-    ...accessible.sort((a,b)=>modelRank(a)-modelRank(b)),
+    ...accessible.sort((a:string,b:string)=>modelRank(a)-modelRank(b)),
     ...MODEL_CANDIDATES,
   ])].slice(0, 30);
   let last:any = { ok: false, status: 502, detail: 'No compatible AI model was available.' };
