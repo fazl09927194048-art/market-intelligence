@@ -128,7 +128,10 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   if (chart.quality === 'partial') warnings.push('Browser chart context is partial: page price was observed but could not be fully verified.');
   if (chart.quality === 'verified' && chart.ageMs > 120000) warnings.push('Browser chart context is older than 2 minutes.');
   if (multiTimeFrame.conflict) warnings.push('Timeframe conflict detected: directional structure disagrees across sampled intervals.');
-  const invalidation = evaluateInvalidation(signal, technical, advanced, { confidenceGate, eventReaction, multiTimeframe: multiTimeFrame, scenarios });
+  const disagreementPenalty = Math.min(18, Math.max(0, Number(consensus.dissent?.length || 0) * 2));
+  if (disagreementPenalty > 0) warnings.push(`Analyst disagreement penalty applied: -${disagreementPenalty}%.`);
+  if (disagreementPenalty > 10) warnings.push('High analyst disagreement: DRO should prefer NO TRADE until independent evidence converges.');
+  const invalidation = evaluateInvalidation(signal, technical, advanced, { confidenceGate: { ...confidenceGate, after: Math.max(0, confidenceGate.after - disagreementPenalty) }, eventReaction, multiTimeframe: multiTimeFrame, scenarios });
   if (invalidation.status === 'NO_TRADE') warnings.push(`Invalidation engine blocked directional execution: ${invalidation.reasons.join(' | ')}`);
   else if (invalidation.status === 'CAUTION') warnings.push(`Invalidation engine raised caution: ${invalidation.reasons.join(' | ')}`);
   const intelligenceScore=buildMarketIntelligenceScore(technical,multiTimeFrame,risk,signal,scenarios,newsImpact,advanced);
