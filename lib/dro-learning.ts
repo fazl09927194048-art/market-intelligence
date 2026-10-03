@@ -15,6 +15,7 @@ type PredictionRecord = {
 
 const records: PredictionRecord[] = [];
 const evaluatedIds = new Set<string>();
+const MAX_CONTEXT = 40;
 const MAX_RECORDS = 5000;
 
 function id() {
@@ -80,4 +81,28 @@ export function getEvolutionSnapshot(symbol?: string) {
     pending: getPendingPredictions(25).filter(x => !symbol || x.symbol === symbol),
     status: metrics.evaluated < 30 ? 'WARMING_UP' : metrics.accuracy >= 50 && metrics.calibrationGap <= 25 ? 'HEALTHY' : 'NEEDS_REVIEW',
   };
+}
+
+
+export type ConversationMemory = {
+  role: 'user' | 'assistant';
+  text: string;
+  at: string;
+};
+
+const conversationMemory: ConversationMemory[] = [];
+
+export function rememberConversation(role: ConversationMemory['role'], text: string) {
+  const clean = String(text || '').trim().slice(0, 2400);
+  if (!clean) return;
+  conversationMemory.push({ role, text: clean, at: new Date().toISOString() });
+  if (conversationMemory.length > MAX_CONTEXT) conversationMemory.splice(0, conversationMemory.length - MAX_CONTEXT);
+}
+
+export function getConversationContext(limit = 12) {
+  return conversationMemory.slice(-Math.max(1, Math.min(limit, MAX_CONTEXT)));
+}
+
+export function clearConversationMemory() {
+  conversationMemory.length = 0;
 }
