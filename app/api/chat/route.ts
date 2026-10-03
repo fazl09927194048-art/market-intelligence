@@ -5,7 +5,8 @@ import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
 import { persistPrediction } from '@/lib/dro-learning-db';
 import { rememberConversation, getConversationContext } from '@/lib/dro-learning';
-import { getSessionUserId } from '@/lib/exchange/session';
+import { cookies } from 'next/headers';
+import crypto from 'node:crypto';
 import { listExchanges, getExchange, getTradingRisk, audit } from '@/lib/exchange/db';
 import { exchangeManager } from '@/lib/exchange/manager';
 
@@ -83,7 +84,7 @@ async function executeCloseCommand(symbol:string,reason:string){
 }
 function isCloseCommand(message:string){const t=message.toLowerCase();return ['close','exit','sell','ببند','ببندش','بستن معامله','خارج شو','خروج بزن','سود کافی'].some(x=>t.includes(x))||(t.includes('ضرر')&&t.includes('ببند'))}
 async function executeCloseCommand(symbol:string,reason:string){
- const userId=await getSessionUserId(); const exchanges=await listExchanges(userId);
+ const jar=await cookies(); let userId=jar.get('fli_session')?.value; if(!userId){userId=crypto.randomUUID(); jar.set('fli_session',userId,{httpOnly:true,sameSite:'lax',secure:process.env.NODE_ENV==='production',maxAge:31536000,path:'/'});} const exchanges=await listExchanges(userId);
  if(exchanges.length!==1)return {ok:false,status:409,text:'برای بستن معامله، ابتدا یک صرافی فعال را انتخاب کن؛ بیش از یک اتصال وجود دارد.'};
  const x=await getExchange(userId,String(exchanges[0].id)); const risk=await getTradingRisk(userId);
  if(risk.emergency_stop)return {ok:false,status:423,text:'Emergency Stop فعال است؛ دستور بستن اجرا نشد.'};
