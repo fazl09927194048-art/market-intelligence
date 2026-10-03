@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
     }
 
     const clientHistory = normalizeHistory(body?.history);
-  const history = clientHistory.length ? clientHistory : getConversationContext(12);
+    const history = clientHistory.length ? clientHistory : getConversationContext(12);
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
     rememberConversation('user', message);
@@ -203,6 +203,7 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       const text = buildIndependentReply(centralIntelligence, message, Boolean(imageData), history);
+      rememberConversation('assistant', text);
       return {
         status: 200,
         body: {
