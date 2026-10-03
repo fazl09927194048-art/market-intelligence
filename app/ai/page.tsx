@@ -175,7 +175,7 @@ export function AIPage(){
    <div className="chatHost"><AIChat symbol={symbol} interval={interval} context={context} fa={fa}/></div>
   </section>
   <footer className="aiFooter">MARKET/INTEL · FLI ADVANCED MARKET INTELLIGENCE AI · informational intelligence only</footer>
- </main>
+ </div>
 }
 
 export default AIPage;
