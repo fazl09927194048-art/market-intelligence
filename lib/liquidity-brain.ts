@@ -1,7 +1,7 @@
 import type { AdvancedMarketData, OrderBookLevel } from './market-advanced';
 
 export type LiquidityBrain={score:number;bias:'BUY'|'SELL'|'NEUTRAL';imbalance:number|null;weightedImbalance:number|null;spreadPct:number|null;bidDepthNotional:number;askDepthNotional:number;depthRatio:number|null;buyPressure:number;sellPressure:number;deltaRatio:number;liquidationPressure:number;walls:{side:'BID'|'ASK';price:number;notional:number;distancePct:number}[];absorptionRisk:number;spoofRisk:number;confidence:number;warnings:string[];method:string};
-const clamp=(n:number,a=0,b=100)=>Math.max(a,Math.min(b,n));
+const clamp=(n:number,a:number=0,b:number=100)=>Math.max(a,Math.min(b,n));
 const sumDepth=(levels:OrderBookLevel[],reference:number|null,maxDistancePct=1.5)=>{if(!reference||reference<=0)return{notional:0,weighted:0};return levels.reduce((x,l)=>{const d=Math.abs(l.price-reference)/reference*100;if(d>maxDistancePct)return x;const w=Math.max(0,1-d/maxDistancePct),notional=l.price*l.quantity;return{notional:x.notional+notional,weighted:x.weighted+notional*w};},{notional:0,weighted:0});};
 export function analyzeLiquidityBrain(data:AdvancedMarketData):LiquidityBrain{
  const price=data.futures.price??data.spot.price,bids=data.spot.orderBook.bids,asks=data.spot.orderBook.asks;
