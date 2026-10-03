@@ -7,7 +7,7 @@ import { getUserAIKey } from '@/lib/user-ai-key';
 export const dynamic = 'force-dynamic';
 const MODEL = process.env.OPENAI_MODEL || 'gpt-6-luna';
 const FALLBACK_MODEL = process.env.OPENAI_FALLBACK_MODEL || 'gpt-6-sol';
-const MODEL_CANDIDATES = Array.from(new Set([MODEL, FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-4.1-mini'])).filter(Boolean);
+const MODEL_CANDIDATES = Array.from(new Set([MODEL, FALLBACK_MODEL, 'gpt-6-luna', 'gpt-6-sol', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-5.6-sol', 'gpt-4.1-mini', 'gpt-4o'])).filter(Boolean);
 const inFlight = new Map<string, Promise<{ status: number; body: any }>>();
 const liveCache = new Map<string, { at: number; data: AdvancedMarketData }>();
 const LIVE_TTL = 3000;
