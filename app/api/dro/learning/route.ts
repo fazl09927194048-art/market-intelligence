@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { evaluatePrediction, getLearningMetrics, listPredictions } from '@/lib/dro-learning';
+import { evaluatePrediction, getLearningMetrics, listPredictions, getEvolutionSnapshot } from '@/lib/dro-learning';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     service: 'DRO Learning Core',
     metrics: getLearningMetrics(symbol || undefined),
+    evolution: getEvolutionSnapshot(symbol || undefined),
     recent: listPredictions(symbol || undefined),
   }, { headers: { 'Cache-Control': 'no-store' } });
 }
