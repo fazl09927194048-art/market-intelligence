@@ -51,7 +51,7 @@ export async function getPersistentMetrics(symbol?: string) {
   return {samples:Number(r.samples||0),evaluated,wins:Number(r.wins||0),losses:Number(r.losses||0),neutral:Number(r.neutral||0),accuracy:evaluated?Number(((Number(r.directional||0)/evaluated)*100).toFixed(2)):0,winRate:wl?Number(((Number(r.wins||0)/wl)*100).toFixed(2)):0,avgConfidence:Number(Number(r.avg_confidence||0).toFixed(2))};
 }
 
-export async function evaluateDuePredictions(fetchDirection: (symbol: string, interval: string) => Promise<string | null>, limit = 50) {
+export async function evaluateDuePredictions(fetchDirection: (row: { symbol: string; interval: string; direction: string; entry: number | null }) => Promise<string | null>, limit = 50) {
   const db = getPool();
   if (!db) return { evaluated: 0, skipped: 0, persistent: false };
   await ensureDroLearningSchema();
@@ -64,7 +64,7 @@ export async function evaluateDuePredictions(fetchDirection: (symbol: string, in
   let evaluated = 0, skipped = 0;
   for (const row of rows) {
     try {
-      const actual = await fetchDirection(row.symbol, row.interval);
+      const actual = await fetchDirection({ symbol: row.symbol, interval: row.interval, direction: row.direction, entry: row.entry === null ? null : Number(row.entry) });
       if (!actual) { skipped++; continue; }
       const normalized = String(actual).toUpperCase();
       const direction = String(row.direction).toUpperCase();
