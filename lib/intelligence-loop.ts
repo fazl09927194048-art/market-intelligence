@@ -101,7 +101,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const newsImpact = summarizeNewsImpact(assetNews, events);
   const eventReaction = assessEventReaction(assetNews, risk);
   const marketRegime = detectMarketRegime(advanced, technical);
-  const analysts = await runAnalystBrain(advanced, technical, assetNews);
+  const analysts = await runAnalystBrain(advanced, technical, assetNews, safeInterval);
   const currentPrice = advanced.futures.price ?? advanced.spot.price;
   const regime = marketRegime.regime;
   rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined, safeInterval);
