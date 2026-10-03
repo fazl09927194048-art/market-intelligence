@@ -179,6 +179,7 @@ export async function POST(request: NextRequest) {
 
     const history = normalizeHistory(body?.history);
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
+    // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
     const prediction = recordPrediction({
       symbol,
       interval,
