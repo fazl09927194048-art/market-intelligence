@@ -18,14 +18,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await evaluateDuePredictions(async ({ symbol, interval, direction, entry }) => {
-    const live = await getAdvancedMarketData(symbol, interval, 20);
+  const result = await evaluateDuePredictions(async ({ symbol, interval, direction, entry, target, stopLoss }) => {
+    const live = await getAdvancedMarketData(symbol, interval, 40);
     const price = Number(live?.futures?.price ?? live?.spot?.price);
     if (!Number.isFinite(price)) return null;
-    if (String(direction).toUpperCase() === 'NO TRADE' || entry == null) return 'NEUTRAL';
-    const distance = Math.abs(price - Number(entry)) / Math.max(Math.abs(Number(entry)), 1);
-    if (distance < 0.001) return 'NEUTRAL';
-    return price > Number(entry) ? 'LONG' : 'SHORT';
+    const side = String(direction).toUpperCase();
+    if (side === 'NO TRADE' || entry == null) return { outcome: 'NEUTRAL', actualDirection: 'NO TRADE' };
+    const px = Number(price);
+    const en = Number(entry);
+    const tp = target == null ? null : Number(target);
+    const sl = stopLoss == null ? null : Number(stopLoss);
+    if (side === 'LONG') {
+      if (tp !== null && px >= tp) return { outcome: 'WIN', actualDirection: 'LONG' };
+      if (sl !== null && px <= sl) return { outcome: 'LOSS', actualDirection: 'SHORT' };
+    }
+    if (side === 'SHORT') {
+      if (tp !== null && px <= tp) return { outcome: 'WIN', actualDirection: 'SHORT' };
+      if (sl !== null && px >= sl) return { outcome: 'LOSS', actualDirection: 'LONG' };
+    }
+    const distance = Math.abs(px - en) / Math.max(Math.abs(en), 1);
+    if (distance < 0.001) return { outcome: 'NEUTRAL', actualDirection: side };
+    return { outcome: side === (px > en ? 'LONG' : 'SHORT') ? 'WIN' : 'LOSS', actualDirection: px > en ? 'LONG' : 'SHORT' };
   });
 
   return NextResponse.json(
