@@ -3,6 +3,7 @@ import type { TechnicalAnalysis } from './technical';
 import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
 import { buildMemoryContext, initializePersistentMemory, rememberAnalystOpinions, getAdaptiveAnalystWeight } from './analyst-memory';
+import { detectMarketRegime } from './market-regime';
 
 export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
@@ -15,7 +16,8 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
   const last=candles.at(-1), prev=candles.at(-2); const volRatio=last&&prev&&prev.volume>0?last.volume/prev.volume:1;
   const newsScore=news.reduce((s,n)=>s+(n.sentiment==='BULLISH'?1:n.sentiment==='BEARISH'?-1:0)*(n.impact==='BREAKING'?3:n.impact==='HIGH'?2:1)*n.credibility,0);
   const base=(ema20!==null&&ema50!==null?(ema20>ema50?18:-18):0)+(macd!==null&&ms!==null?(macd>ms?12:-12):0);
-  const regime=t.structure.trend;
+  const regimeSnapshot=detectMarketRegime(data,t);
+  const regime=regimeSnapshot.regime;
   const opinions=ANALYSTS.map(a=>{
     const memory=buildMemoryContext(a.id,`${data.symbol} ${regime} ${a.specialty}`,data.symbol,regime);
     let s=0, evidence:string[]=[], conflicts:string[]=[], method='independent rule set';
@@ -54,17 +56,19 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
-    const rawScore=s, memoryWeight=memory.effectiveWeight;
-    s=rawScore*memoryWeight;
-    if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${memoryWeight.toFixed(3)}.`);
-    if (memory.profile.evaluatedPredictions>=12 && memory.effectiveWeight!==memory.profile.currentWeight) evidence.push(`Regime-aware adjustment active for ${regime}: ${memory.effectiveWeight.toFixed(3)}.`);
+    const regimeMultiplier = (()=>{ const id=a.id; const r=regimeSnapshot.regime; const aligned=(r==='TREND_UP'&&(id==='trend'||id==='swing'||id==='momentum'))||(r==='TREND_DOWN'&&(id==='trend'||id==='swing'||id==='momentum'))||(r==='BREAKOUT'&&(id==='breakout'||id==='volume'||id==='orderflow'))||(r==='REVERSAL'&&(id==='mean-reversion'||id==='pattern'||id==='liquidation'))||(r==='HIGH_VOLATILITY'&&(id==='risk'||id==='liquidation'||id==='orderflow'))||(r==='RANGE'&&(id==='mean-reversion'||id==='liquidity'||id==='support'||id==='resistance'))||(r==='LOW_VOLATILITY'&&(id==='breakout'||id==='volatility')); return aligned?1.12:0.94; })();
+    const rawScore=s, memoryWeight=memory.effectiveWeight, effectiveWeight=memoryWeight*regimeMultiplier;
+    if(regimeMultiplier!==1) evidence.push(`Regime weighting: ${regimeSnapshot.regime} × ${regimeMultiplier.toFixed(2)}.`);
+    s=rawScore*effectiveWeight;
+    if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${effectiveWeight.toFixed(3)}.`);
+    if (memory.profile.evaluatedPredictions>=12 && effectiveWeight!==memory.profile.currentWeight) evidence.push(`Regime-aware adjustment active for ${regime}: ${effectiveWeight.toFixed(3)}.`);
     if (memory.memories.length) evidence.push(`Retrieved ${memory.memories.length} relevant memory records for ${data.symbol}.`);
     if (memory.profile.recentLessons.length) evidence.push(`Relevant lessons retained: ${memory.profile.recentLessons.slice(-3).join(' | ')}`);
     if(t.volatility.regime==='HIGH'&&Math.abs(s)>30) conflicts.push('High volatility reduces confidence.');
     if(news.some(n=>n.impact==='BREAKING')) conflicts.push('Breaking news can invalidate technical assumptions.');
     evidence.push(method);
     const confidence=clamp(Math.round(45+Math.abs(s)*0.55+(t.confidence-75)*0.25-conflicts.length*5),0,96);
-    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Memory weight ${memoryWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:memoryWeight,recentLessons:memory.profile.recentLessons}};
+    return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Memory weight ${memoryWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:effectiveWeight,recentLessons:memory.profile.recentLessons}};
   });
   rememberAnalystOpinions(data.symbol, regime, opinions);
   return opinions;
