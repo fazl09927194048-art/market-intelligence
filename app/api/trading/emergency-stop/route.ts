@@ -1,0 +1,3 @@
+import {NextResponse} from 'next/server';import {getSessionUserId} from '@/lib/exchange/session';import {setEmergencyStop,audit} from '@/lib/exchange/db';
+export const dynamic='force-dynamic';
+export async function POST(req:Request){try{const userId=await getSessionUserId();const b=await req.json().catch(()=>({}));const enabled=b.enabled!==false;await setEmergencyStop(userId,enabled);await audit({userId,action:enabled?'EMERGENCY_STOP_ON':'EMERGENCY_STOP_OFF',source:'USER',result:enabled?'Trading blocked':'Trading unblocked',status:'OK'});return NextResponse.json({ok:true,emergencyStop:enabled})}catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Emergency stop failed'},{status:503})}}
