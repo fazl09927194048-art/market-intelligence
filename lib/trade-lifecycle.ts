@@ -37,7 +37,13 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
  let updated=0,events=0,open=0,terminal=0; const errors:string[]=[];
  for(const row of rows.rows){
   try{
-   const remote=await exchangeManager.status(x.record.name,x.credentials,row.symbol,row.exchange_order_id||undefined,row.client_order_id||undefined);
+   let remote:any;
+   try{remote=await exchangeManager.status(x.record.name,x.credentials,row.symbol,row.exchange_order_id||undefined,row.client_order_id||undefined);}
+   catch(firstError){
+    if(row.client_order_id){
+     try{remote=await exchangeManager.status(x.record.name,x.credentials,row.symbol,undefined,row.client_order_id);}catch{throw firstError;}
+    }else throw firstError;
+   }
    const remoteStatus=normalizeRemoteStatus(remote?.status||remote?.orderStatus,row.status);
    const executed=num(remote?.executedQty??remote?.executedQuantity??remote?.filledQuantity)??num(row.filled_quantity)??0;
    const requested=num(row.quantity)??0;
