@@ -4,7 +4,7 @@ export type ForecastEvaluation={id:string;symbol:string;forecastAt:string;evalua
 type PathCandle={openTime:number;high:number;low:number;closeTime:number};
 const finite=(v:number|null|undefined):v is number=>v!==null&&v!==undefined&&Number.isFinite(v);
 
-export function evaluateForecast(input:{id?:string;symbol:string;forecastAt:string;bias:'BULLISH'|'BEARISH'|'NEUTRAL'|'UNAVAILABLE';confidence:number;startPrice:number;endPrice:number;expectedLow:number|null;expectedHigh:number|null;horizonMs:number;path?:PathCandle[];now?:string}):ForecastEvaluation{
+export function evaluateForecast(input:{id?:string;symbol:string;forecastAt:string;bias:'BULLISH'|'BEARISH'|'NEUTRAL'|'UNAVAILABLE';confidence:number;startPrice:number;endPrice:number;expectedLow:number|null;expectedHigh:number|null;horizonMs:number;path?:PathCandle[];now?:string;strategyVersion?:string}):ForecastEvaluation{
   const start=Number(input.startPrice),end=Number(input.endPrice),horizonMs=Number(input.horizonMs);
   if(!Number.isFinite(start)||start<=0)throw new Error('Invalid forecast start price');
   if(!Number.isFinite(end)||end<=0)throw new Error('Invalid forecast end price');
