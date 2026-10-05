@@ -78,5 +78,5 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  if(exposure>0) reasons.push('Existing exposure reduced new position size.');
  if(expectedR!==null&&expectedR<1.5) blocks.push('Risk/reward is below the 1.5R minimum.');
  if(riskMultiplier<0.15) blocks.push('Dynamic risk multiplier is below the safety floor.');
- return {allowed:blocks.length===0&&recommendedNotionalUsd>0,riskBudgetUsd,recommendedQuantity,recommendedNotionalUsd,stopDistancePct,expectedR,riskMultiplier,factors:{volatility:volMult,liquidity:liqMult,confidence:confMult,drawdown:drawdownMult,exposure:exposureMult},reasons,blocks};
+ return {allowed:blocks.length===0&&recommendedNotionalUsd>0,riskBudgetUsd,recommendedQuantity,recommendedNotionalUsd,stopDistancePct,expectedR,riskMultiplier,levelQuality,factors:{volatility:volMult,liquidity:liqMult,confidence:confMult,drawdown:drawdownMult,exposure:exposureMult},reasons,blocks};
 }
