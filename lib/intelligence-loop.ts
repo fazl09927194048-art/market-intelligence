@@ -16,6 +16,7 @@ import { buildDecisionTrace } from '@/lib/decision-trace';
 import { initializePersistentMemory, rememberAnalystOpinions, evaluateMaturedPredictions } from '@/lib/analyst-memory';
 import { detectMarketRegime } from '@/lib/market-regime';
 import { analyzeLiquidityBrain } from '@/lib/liquidity-brain';
+import { getActiveStrategy } from '@/lib/strategy-evolution';
 
 type Story = { title: string; source: string; publishedAt: string; url: string; category: string };
 const FEEDS = [
@@ -110,6 +111,8 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const outcomeLearning = currentPrice && Number.isFinite(currentPrice) ? evaluateMaturedPredictions(safeSymbol, safeInterval, currentPrice, regime) : { evaluated: 0, skipped: 0 };
   const consensus = synthesizeOpinions(analysts, safeSymbol, marketRegime.regime, safeInterval);
   const decisionAudit = buildDecisionAudit(analysts, scenarios);
+  const activeStrategy = await getActiveStrategy();
+  const strategyVersion = activeStrategy?.id ?? 'baseline-unversioned';
   const cycleId = `${safeSymbol}-${Date.now()}`;
   const qualityFactors = [
     {id:'market',ok:market.markets.length>0,penalty:12,reason:'market snapshot unavailable'},
@@ -178,7 +181,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
     const snapshotId=`${safeSymbol}:${safeInterval}:${forecastBucket}`;
     void recordForecastSnapshot({id:snapshotId,symbol:safeSymbol,interval:safeInterval,forecastAt,bias:forecast.bias,confidence:forecast.confidence,startPrice,expectedLow:forecast.expectedLow,expectedHigh:forecast.expectedHigh,horizonMs:horizonMs(safeInterval),cycleId}).catch(()=>undefined);
   }
-  return {cycleId,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,marketRegime,liquidityBrain,intelligenceScore,tradePlan,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
+  return {cycleId,strategyVersion,generatedAt:forecastAt,symbol:safeSymbol,interval:safeInterval,chartContext:chart,marketRegime,liquidityBrain,intelligenceScore,tradePlan,chartPatterns,multiTimeframe:multiTimeFrame,risk,eventReaction,market,marketData:advanced,technical,signal:finalSignal,forecast,scenarios,analysts,consensus:{...consensus,confidence:gatedConfidence},confidenceGate,decisionAudit,invalidation,decisionTrace,news:assetNews.slice(0,30),events:events.slice(0,10),newsImpact,dataValid:market.markets.length>0&&candles.length>=20&&technical.confidence>=50,sourceHealth:{...market.sourceHealth,...advanced.sourceHealth},warnings, outcomeLearning, memoryLearning: { enabled: true, analystPredictionsRecorded: analysts.length, automaticEvaluation: true }};
 }
 
 export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chartInput?:Partial<ChartContext>|null,chartVision?:ChartVisionContext|null){
