@@ -10,7 +10,7 @@ function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
 function normalizeRemoteStatus(v:unknown, fallback:string){const s=String(v||fallback).toUpperCase();if(s==='CANCELLED')return 'CANCELLED';if(s==='CANCELED')return 'CANCELED';if(s==='PARTIALLY_FILLED')return 'PARTIALLY_FILLED';if(s==='NEW'||s==='PENDING_NEW'||s==='ACKNOWLEDGED')return 'ACKNOWLEDGED';if(s==='FILLED')return 'FILLED';if(s==='REJECTED')return 'REJECTED';if(s==='EXPIRED'||s==='EXPIRED_IN_MATCH')return s;return s||fallback}
 function lifecycleState(orderStatus:string,tradeState:string,executed:number,requested:number){
  const s=normalizeRemoteStatus(orderStatus,tradeState);
- if(s==='FILLED')return tradeState==='CLOSING'?'CLOSING':'FILLED';
+ if(s==='FILLED')return tradeState==='CLOSING'?'CLOSED':'FILLED';
  if(s==='PARTIALLY_FILLED'||(requested>0&&executed>0&&executed<requested))return 'PARTIALLY_FILLED';
  if(['REJECTED','CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH'].includes(s))return s;
  if(tradeState==='CLOSING')return 'CLOSING';
@@ -64,9 +64,11 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
     const fee=num(remote?.commission??remote?.fees);
     const remaining=Math.max(0,requested-executed);
     await db().query(`UPDATE trades SET state=$1,filled_quantity=$2,remaining_quantity=$3,average_fill_price=COALESCE($4,average_fill_price),last_fill_price=COALESCE($5,last_fill_price),fees=COALESCE($6,fees),submitted_at=COALESCE(submitted_at,created_at),first_fill_at=CASE WHEN $2>0 AND first_fill_at IS NULL THEN now() ELSE first_fill_at END,filled_at=CASE WHEN $1='FILLED' THEN COALESCE(filled_at,now()) ELSE filled_at END,updated_at=now() WHERE id=$7`,[nextTrade,executed,remaining,avg,last,fee,row.trade_id]);
+    if(nextTrade==='CLOSED') await db().query("UPDATE trades SET closed_at=COALESCE(closed_at,now()),updated_at=now() WHERE id=$1",[row.trade_id]);
     if(nextTrade!==tradeState){
      await db().query('INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)',[row.trade_id,tradeState,nextTrade,'EXCHANGE_RECONCILIATION','system','Remote exchange state synchronized',remote]);
      events++;
+     if(nextTrade==='CLOSED') await finalizeTradeOutcome(userId,row.trade_id);
     }
    }
    if(TERMINAL.has(nextOrder))terminal++;else open++;
@@ -84,6 +86,16 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
   }
  }
  return{checked:rows.rows.length,updated,events,open,terminal,errors,checkedAt:new Date().toISOString()};
+}
+
+export async function finalizeTradeOutcome(userId:string,tradeId:string){
+ await ensureExchangeSchema();
+ const r=await db().query('SELECT * FROM trades WHERE id=$1 AND user_id=$2',[tradeId,userId]); const t=r.rows[0]; if(!t||String(t.state)!=='CLOSED') return false;
+ const pnl=num(t.realized_pnl)??num(t.unrealized_pnl)??0; const start=new Date(t.created_at).getTime(); const end=new Date(t.closed_at||new Date()).getTime();
+ await db().query(`INSERT INTO trade_outcomes(trade_id,prediction,execution,pnl,mfe,mae,duration_seconds,exit_reason,thesis_validity,prediction_at,outcome_at)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()) ON CONFLICT(trade_id) DO UPDATE SET pnl=EXCLUDED.pnl,mfe=EXCLUDED.mfe,mae=EXCLUDED.mae,duration_seconds=EXCLUDED.duration_seconds,exit_reason=EXCLUDED.exit_reason,thesis_validity=EXCLUDED.thesis_validity,outcome_at=now()`,
+ [tradeId,JSON.stringify({plannedEntry:t.planned_entry,stop:t.stop_price,takeProfit:t.take_profit_price,cycleId:t.cycle_id}),JSON.stringify({averageFill:t.average_fill_price,fees:t.fees,slippage:t.actual_slippage}),pnl,t.mfe,t.mae,Math.max(0,Math.floor((end-start)/1000)),t.exit_reason||'CLOSED',t.thesis_status||'UNKNOWN',t.created_at]);
+ return true;
 }
 
 export async function createTradeForOrder(input:{userId:string;exchangeId:string;orderId:string;exchangeOrderId?:string;clientOrderId?:string;symbol:string;side:string;executionMode:string;cycleId?:string;strategyVersion?:string;droVersion?:string;decisionTraceId?:string;plannedEntry?:number;quantity?:number;stopPrice?:number;takeProfitPrice?:number;plannedHorizonMinutes?:number}){
