@@ -17,9 +17,9 @@ export async function POST(req:Request){
   if(action==='forward-test'){
    const id=String(body?.id||'');
    if(!body?.backtest?.candles||!Array.isArray(body.backtest.candles)||!Array.isArray(body.backtest.signals))return NextResponse.json({ok:false,error:'Forward-test candles and signals are required.'},{status:400});
-   const result=runForwardTest(body.backtest,Number(body?.trainRatio||0.7));
+   const trainRatio=0.7; const result=runForwardTest(body.backtest,trainRatio);
    const candidate=await attachForwardMetrics(id,result);
-   return NextResponse.json({ok:true,candidate,forwardTest:result,validation:validateLearningResult(result)});
+   return NextResponse.json({ok:true,candidate,forwardTest:result,validation:validateLearningResult(result),provenance:{method:'server-enforced-out-of-sample-split',trainRatio,signalCutoff:'index >= floor(candles.length * 0.7)'}});
   }
   const id=String(body?.id||''); const c=await getCandidate(id); if(!c)return NextResponse.json({ok:false,error:'Candidate not found'},{status:404});
   if(action==='promote')return NextResponse.json({ok:true,candidate:await promoteCandidate(c.id)});
