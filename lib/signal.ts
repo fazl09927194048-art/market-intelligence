@@ -1,6 +1,30 @@
 import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
 
+
+export type ChartVisionContext = {
+  available?: boolean;
+  provider?: string;
+  model?: string;
+  symbol?: string | null;
+  timeframe?: string | null;
+  lastVisiblePrice?: number | null;
+  direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'UNKNOWN';
+  confidence: number;
+  visualQuality: number;
+  trend?: string | null;
+  marketStructure?: string | null;
+  support?: number[];
+  resistance?: number[];
+  patterns?: string[];
+  liquidity?: string | null;
+  volumeContext?: string | null;
+  indicatorContext?: string | null;
+  invalidation?: string | null;
+  evidence?: string[];
+  uncertainty?: string[];
+};
+
 export type SignalSide = 'LONG' | 'SHORT' | 'NEUTRAL' | 'NO TRADE';
 
 export type SignalResult = {
