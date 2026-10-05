@@ -18,13 +18,14 @@ export async function getCandidate(id:string){const rows=await listPersistedStra
 export async function compareCandidates(aId:string,bId:string){
   const [a,b]=await Promise.all([getCandidate(aId),getCandidate(bId)]);
   if(!a||!b) throw new Error('Candidate not found');
-  const score=(x:StrategyCandidate)=>x.metrics.totalReturnPct-x.metrics.maxDrawdownPct*0.5+(x.metrics.profitFactor>0?Math.min(x.metrics.profitFactor,5)*2:0)+(x.metrics.winRate-50)*0.05;
+  const score=(x:StrategyCandidate)=>{const m=x.metrics;const f=x.forwardMetrics;const base=m.totalReturnPct-m.maxDrawdownPct*0.5+(m.profitFactor>0?Math.min(m.profitFactor,5)*2:0)+(m.winRate-50)*0.05;const forward=f?f.totalReturnPct-f.maxDrawdownPct*0.5+(f.profitFactor>0?Math.min(f.profitFactor,5)*2:0)+(f.winRate-50)*0.05:0;return f?base*0.6+forward*0.4:base*0.5;};
   const sa=score(a), sb=score(b);
   return {a:{id:a.id,score:sa,metrics:a.metrics},b:{id:b.id,score:sb,metrics:b.metrics},winner:sa>sb?a.id:sb>sa?b.id:'TIE'};
 }
 export async function promoteCandidate(id:string){
  const c=await getCandidate(id);if(!c)throw new Error('Candidate not found');
  const forward=(c as any).forwardMetrics as BacktestResult|undefined;
+ if(c.status!=='CANDIDATE') throw new Error('Only a CANDIDATE strategy can be promoted');
  const gate=evaluateCandidate(c);
  const forwardGate=forward?evaluateCandidate({...c,metrics:forward} as StrategyCandidate):{eligible:false};
  const eligible=gate.eligible&&forwardGate.eligible;
