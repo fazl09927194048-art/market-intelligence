@@ -43,7 +43,7 @@ export async function POST(req:NextRequest){
    if(!Number.isFinite(estimatedRisk)||estimatedRisk<=0||estimatedRisk>Number(risk.max_daily_loss_usd)) {
     return NextResponse.json({ok:false,error:'DRO TRADE GUARD BLOCKED THE ORDER: estimated stop-loss risk exceeds the configured daily loss limit.',droGuard:{status:'BLOCKED',estimatedRisk,maxDailyLoss:Number(risk.max_daily_loss_usd)}},{status:403});
    }
-   droGuard={status:'PASSED',cycleId:cycle.cycleId,confidence,riskReward:rr,entry,stopLoss:stop,takeProfit:tp,estimatedRisk,requiredConfidence:minConfidence,requiredRiskReward:minRR};
+   droGuard={status:'PASSED',cycleId:cycle.cycleId,strategyVersion:cycle.strategyVersion??'baseline-unversioned',confidence,riskReward:rr,entry,stopLoss:stop,takeProfit:tp,estimatedRisk,requiredConfidence:minConfidence,requiredRiskReward:minRR};
   }
   if(risk.emergency_stop) return NextResponse.json({ok:false,error:'Emergency stop is active.'},{status:423});
   const mode=String(risk.execution_mode||'PAPER').toUpperCase();
@@ -95,7 +95,7 @@ export async function POST(req:NextRequest){
   const result=await exchangeManager.createOrder(x.record.name,x.credentials,p);
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,quote_quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",[userId,exchangeId,symbol,side,type,quantity??null,quoteQuantity??null,price??null,clientOrderId,String(result.orderId||''),String(result.status||'ACKNOWLEDGED'),result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',String(result.status||'ACKNOWLEDGED'),'EXCHANGE_SUBMITTED',result]);
-  const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side,executionMode:mode,cycleId:droGuard?.cycleId,plannedEntry:droGuard?.entry,quantity:quantity??(quoteQuantity&&droGuard?.entry?quoteQuantity/Number(droGuard.entry):undefined),stopPrice:droGuard?.stopLoss,takeProfitPrice:droGuard?.takeProfit});
+  const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side,executionMode:mode,cycleId:droGuard?.cycleId,plannedEntry:droGuard?.entry,quantity:quantity??(quoteQuantity&&droGuard?.entry?quoteQuantity/Number(droGuard.entry):undefined),stopPrice:droGuard?.stopLoss,takeProfitPrice:droGuard?.takeProfit,strategyVersion:droGuard?.strategyVersion});
   const remoteStatus=String(result.status||'ACKNOWLEDGED').toUpperCase();
   const initialTradeState=remoteStatus==='FILLED'?'FILLED':remoteStatus==='PARTIALLY_FILLED'?'PARTIALLY_FILLED':'ACKNOWLEDGED';
   await db().query("UPDATE trades SET state=$1,submitted_at=now(),updated_at=now() WHERE id=$2",[initialTradeState,tradeId]);
