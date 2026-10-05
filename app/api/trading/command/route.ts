@@ -19,6 +19,7 @@ export async function POST(req:NextRequest){
   if(!tradeId&&trades.length!==1)return NextResponse.json({ok:false,parsed,requiresTradeSelection:true,trades},{status:409});
   const idempotencyKey=String(body.idempotencyKey||crypto.createHash('sha256').update(userId+'|'+(tradeId||'')+'|'+text).digest('hex'));
   const command=await createCommand(userId,tradeId,parsed.intent,{text,quantityPct:parsed.quantityPct||null},idempotencyKey);
+  if(command.status!=='RECEIVED') return NextResponse.json({ok:true,parsed,tradeId,command,execution:'IDEMPOTENT_REPLAY',message:'This command was already processed; no duplicate exchange order was submitted.'},{headers:{'Cache-Control':'no-store'}});
   if(['CLOSE_POSITION','PARTIAL_CLOSE'].includes(parsed.intent)){
    const execution=await executeCloseCommand(userId,tradeId!,parsed.intent,Number(parsed.quantityPct||100));
    return NextResponse.json({ok:true,parsed,tradeId,command,execution},{headers:{'Cache-Control':'no-store'}});
