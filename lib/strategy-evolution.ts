@@ -15,10 +15,10 @@ export function evaluateCandidate(c:StrategyCandidate){
  return {eligible:m.trades>=30&&m.winRate>=50&&m.profitFactor>1.05&&m.totalReturnPct>0&&m.maxDrawdownPct<15,checks:{sample:m.trades>=30,winRate:m.winRate>=50,profitFactor:m.profitFactor>1.05,return:m.totalReturnPct>0,drawdown:m.maxDrawdownPct<15}};
 }
 export async function getCandidate(id:string){const rows=await listPersistedStrategyVersions(100);const r=rows.find(x=>String(x.id)===id);return r?toCandidate(r):null;}
-export async function promoteCandidate(id:string){
+export async function compareCandidates(aId:string,bId:string){ const [a,b]=await Promise.all([getCandidate(aId),getCandidate(bId)]); if(!a||!b)throw new Error('Candidate not found'); const score=(c:StrategyCandidate)=>c.metrics.totalReturnPct-c.metrics.maxDrawdownPct*0.5+(c.metrics.profitFactor>0?Math.min(c.metrics.profitFactor,5)*2:0)+(c.metrics.winRate-50)*0.05; return {a:{id:a.id,score:score(a),metrics:a.metrics},b:{id:b.id,score:score(b),metrics:b.metrics},winner:score(a)>score(b)?a.id:score(b)>score(a)?b.id:'TIE'}; }\nexport async function promoteCandidate(id:string){
  const c=await getCandidate(id);if(!c)throw new Error('Candidate not found');
  const gate=evaluateCandidate(c);const status=gate.eligible?'PROMOTED':'REJECTED';const reason=gate.eligible?'Passed evaluation gate':'Evaluation gate failed';
- await saveStrategyVersion({id:c.id,parentVersion:c.parentVersion,status,metrics:c.metrics,reason});
+ if(status==='PROMOTED'){ const rows=await listPersistedStrategyVersions(100); for(const row of rows){ if(String(row.id)!==c.id && row.status==='PROMOTED') await saveStrategyVersion({id:String(row.id),parentVersion:String(row.parent_version),status:'ROLLED_BACK',metrics:row.metrics,reason:'Superseded by promoted challenger'}); } } await saveStrategyVersion({id:c.id,parentVersion:c.parentVersion,status,metrics:c.metrics,reason});
  return {...c,status,reason};
 }
 export async function rollbackCandidate(id:string){
