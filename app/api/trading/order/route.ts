@@ -6,6 +6,7 @@ import {getExchange,ensureExchangeSchema,db,audit,getTradingRisk} from '@/lib/ex
 import {exchangeManager} from '@/lib/exchange/manager';
 import {runIntelligenceCycle} from '@/lib/intelligence-loop';
 import {createTradeForOrder} from '@/lib/trade-lifecycle';
+import {calculateDynamicRisk} from '@/lib/dynamic-risk-engine';
 export const dynamic='force-dynamic';
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
 export async function POST(req:NextRequest){
@@ -58,6 +59,15 @@ export async function POST(req:NextRequest){
   if(droGuard && notional>Number(risk.max_position_usd)) return NextResponse.json({ok:false,error:'DRO execution blocked: requested position exceeds max_position_usd ('+risk.max_position_usd+').'},{status:403});
   if(droGuard && type==='LIMIT' && price!==undefined){const deviation=Math.abs(price-Number(droGuard.entry))/Number(droGuard.entry)*100;if(!Number.isFinite(deviation)||deviation>0.5)return NextResponse.json({ok:false,error:'DRO execution blocked: limit price is more than 0.5% away from the approved entry.'},{status:409});}
   await ensureExchangeSchema();
+  let dynamicRisk:any=null;
+  if(droGuard){
+   const realized=await db().query("SELECT COALESCE(SUM(CASE WHEN realized_pnl<0 THEN -realized_pnl ELSE 0 END),0)::numeric AS loss FROM trades WHERE user_id=$1 AND closed_at>=CURRENT_DATE",[userId]);
+   const exposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId]);
+   dynamicRisk=calculateDynamicRisk({risk,advanced:({marketData:undefined,...cycle} as any).marketData||cycle.marketData,technical:cycle.technical,side,entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0)});
+   const requestedQty=quantity??(quoteQuantity!/Number(droGuard.entry));
+   if(!dynamicRisk.allowed) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order.',dynamicRisk},{status:403});
+   if(!Number.isFinite(requestedQty)||requestedQty<=0||requestedQty>Number(dynamicRisk.recommendedQuantity)) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order: requested size exceeds the context-aware risk budget.',requestedQuantity:requestedQty,recommendedQuantity:dynamicRisk.recommendedQuantity,dynamicRisk},{status:403});
+  }
   const count=await db().query("SELECT COUNT(*)::int AS n FROM orders WHERE user_id=$1 AND created_at>=CURRENT_DATE",[userId]);
   if(Number(count.rows[0]?.n||0)>=Number(risk.max_trades)) return NextResponse.json({ok:false,error:'Daily trade limit reached ('+risk.max_trades+').'},{status:403});
   const clientOrderId='FLI_'+crypto.randomBytes(12).toString('hex'); const p:any={symbol,side,type,clientOrderId};
@@ -84,6 +94,6 @@ export async function POST(req:NextRequest){
   await db().query("UPDATE trades SET state=$1,submitted_at=now(),updated_at=now() WHERE id=$2",[initialTradeState,tradeId]);
   await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,'CREATED',initialTradeState,'ORDER_SUBMITTED','DRO_TOOL','Autonomous order accepted by exchange',result]);
   await audit({userId,action:'CREATE_ORDER',exchange:x.record.name,symbol,orderId:String(result.orderId||clientOrderId),source:'DRO_TOOL',result:'Submitted and linked to trade lifecycle',status:remoteStatus});
-  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId,tradeId,droGuard});
+  return NextResponse.json({ok:true,mode:'AUTONOMOUS',order:result,clientOrderId,tradeId,droGuard,dynamicRisk});
  }catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'Order failed'},{status:502})}
 }
