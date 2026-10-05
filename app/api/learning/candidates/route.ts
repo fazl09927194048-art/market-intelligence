@@ -15,7 +15,8 @@ export async function POST(req:Request){
   }
   const id=String(body?.id||''); const c=await getCandidate(id); if(!c)return NextResponse.json({ok:false,error:'Candidate not found'},{status:404});
   if(action==='promote')return NextResponse.json({ok:true,candidate:await promoteCandidate(c.id)});
-  if(action==='evaluate')return NextResponse.json({ok:true,evaluation:evaluateCandidate(c)});\n  if(action==='compare'){const other=String(body?.otherId||'');return NextResponse.json({ok:true,comparison:await compareCandidates(c.id,other)});}
+  if(action==='evaluate')return NextResponse.json({ok:true,evaluation:evaluateCandidate(c)});
+  if(action==='compare'){const other=String(body?.otherId||'');return NextResponse.json({ok:true,comparison:await compareCandidates(c.id,other)});}
   if(action==='rollback')return NextResponse.json({ok:true,candidate:await rollbackCandidate(c.id)});
   return NextResponse.json({ok:false,error:'Unsupported action'},{status:400});
  }catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:'Candidate operation failed'},{status:400});}
