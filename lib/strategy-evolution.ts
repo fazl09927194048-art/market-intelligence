@@ -1,5 +1,5 @@
 import type {BacktestResult} from './learning-lab';
-import {ensureStrategyVersionSchema,saveStrategyVersion,listPersistedStrategyVersions} from './strategy-version-store';
+import {ensureStrategyVersionSchema,saveStrategyVersion,listPersistedStrategyVersions,setActiveStrategyVersion,getActiveStrategyVersion} from './strategy-version-store';
 
 export type StrategyCandidate={id:string;parentVersion:string;createdAt:string;metrics:BacktestResult;status:'CANDIDATE'|'PROMOTED'|'REJECTED'|'ROLLED_BACK';reason:string;forwardMetrics?:BacktestResult};
 const toCandidate=(r:any):StrategyCandidate=>({id:String(r.id),parentVersion:String(r.parent_version),createdAt:new Date(r.created_at).toISOString(),metrics:r.metrics as BacktestResult,status:r.status,reason:String(r.reason||''),forwardMetrics:r.forward_metrics||undefined});
@@ -30,6 +30,7 @@ export async function promoteCandidate(id:string){
  const eligible=gate.eligible&&forwardGate.eligible;
  const status=eligible?'PROMOTED':'REJECTED';const reason=eligible?'Backtest and forward-test gates passed':forward?'Backtest or forward-test gate failed':'Forward test is required before promotion';
  if(status==='PROMOTED'){ const rows=await listPersistedStrategyVersions(100); for(const row of rows){ if(String(row.id)!==c.id && row.status==='PROMOTED') await saveStrategyVersion({id:String(row.id),parentVersion:String(row.parent_version),status:'ROLLED_BACK',metrics:row.metrics,reason:'Superseded by promoted challenger'}); } } await saveStrategyVersion({id:c.id,parentVersion:c.parentVersion,status,metrics:c.metrics,forwardMetrics:c.forwardMetrics,reason});
+ if(status==='PROMOTED') await setActiveStrategyVersion(c.id);
  return {...c,status,reason};
 }
 export async function rollbackCandidate(id:string){
@@ -44,3 +45,5 @@ export async function attachForwardMetrics(id:string,forwardMetrics:BacktestResu
  await saveStrategyVersion({id:c.id,parentVersion:c.parentVersion,status:c.status,metrics:c.metrics,forwardMetrics,reason:c.reason});
  return {...c,forwardMetrics};
 }
+
+export async function getActiveStrategy(){const id=await getActiveStrategyVersion();return id?getCandidate(id):null;}
