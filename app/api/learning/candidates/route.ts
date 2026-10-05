@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {runBacktest,runForwardTest,validateLearningResult} from '@/lib/learning-lab';
-import {createCandidate,listCandidates,evaluateCandidate,promoteCandidate,rollbackCandidate,getCandidate,compareCandidates,attachForwardMetrics} from '@/lib/strategy-evolution';
+import {createCandidate,listCandidates,evaluateCandidate,promoteCandidate,rollbackCandidate,getCandidate,compareCandidates,attachForwardMetrics,getActiveStrategy} from '@/lib/strategy-evolution';
 
 export async function GET(){try{return NextResponse.json({ok:true,candidates:await listCandidates()});}catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:'Candidate list failed'},{status:500});}}
 export async function POST(req:Request){
@@ -10,7 +10,8 @@ export async function POST(req:Request){
    if(!body?.backtest?.candles||!Array.isArray(body.backtest.candles)||!Array.isArray(body.backtest.signals))return NextResponse.json({ok:false,error:'Server-side backtest input is required.'},{status:400});
    const result=runBacktest(body.backtest); const validation=validateLearningResult(result);
    if(!validation.eligible)return NextResponse.json({ok:false,error:'Backtest did not pass the baseline learning gate.',result,validation},{status:422});
-   const candidate=await createCandidate(String(body?.parentVersion||'v-current'),result,String(body?.reason||'Validated backtest candidate'));
+   const active=await getActiveStrategy();
+   const candidate=await createCandidate(String(body?.parentVersion||active?.id||'baseline'),result,String(body?.reason||'Validated backtest candidate'));
    return NextResponse.json({ok:true,candidate,backtest:result,validation});
   }
   if(action==='forward-test'){
