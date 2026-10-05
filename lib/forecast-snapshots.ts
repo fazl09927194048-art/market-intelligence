@@ -13,7 +13,8 @@ export type ForecastSnapshot = {
   expectedLow: number | null;
   expectedHigh: number | null;
   horizonMs: number;
-  cycleId: string;\n  strategyVersion?: string;
+  cycleId: string;
+  strategyVersion?: string;
 };
 
 export async function recordForecastSnapshot(snapshot: ForecastSnapshot) {
