@@ -1,5 +1,6 @@
 import type { AdvancedMarketData } from './market-advanced';
 import type { TechnicalAnalysis } from './technical';
+import { analyzeLiquidityBrain } from './liquidity-brain';
 
 export type DynamicRiskInput={
  risk:any;
@@ -38,7 +39,7 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const spread=Number(i.advanced?.microstructure?.spreadPct||0);
  const imbalance=Math.abs(Number(i.advanced?.microstructure?.orderBookImbalance||0));
  const sourceDown=Object.values(i.advanced?.sourceHealth||{}).filter(v=>v==='down').length;
- const liquidityConfidence=Number((i.advanced as any)?.microstructure?.liquidityConfidence ?? (i.advanced as any)?.liquidityBrain?.confidence ?? 100);
+ const liquidityConfidence=analyzeLiquidityBrain(i.advanced).confidence;
  const rawFetchedAt=(i.advanced as any)?.fetchedAt; const staleAt=typeof rawFetchedAt==='number'?rawFetchedAt:Date.parse(String(rawFetchedAt||'')); const dataAgeMs=Number.isFinite(staleAt)&&staleAt>0?Math.max(0,Date.now()-staleAt):Infinity;
  const confidence=clamp(Number(i.confidence)||0,0,100);
  const maxDaily=Number(i.risk.max_daily_loss_usd||0);
