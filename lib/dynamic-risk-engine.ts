@@ -38,6 +38,7 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const spread=Number(i.advanced?.microstructure?.spreadPct||0);
  const imbalance=Math.abs(Number(i.advanced?.microstructure?.orderBookImbalance||0));
  const sourceDown=Object.values(i.advanced?.sourceHealth||{}).filter(v=>v==='down').length;
+ const liquidityConfidence=Number((i.advanced as any)?.microstructure?.liquidityConfidence ?? 100);
  const confidence=clamp(Number(i.confidence)||0,0,100);
  const maxDaily=Number(i.risk.max_daily_loss_usd||0);
  const maxPosition=Number(i.risk.max_position_usd||0);
@@ -50,6 +51,7 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  if(!finite(entry)||entry<=0||!finite(stop)||stop<=0||stopDistancePct<=0) blocks.push('Invalid entry/stop distance.');
  if(stopDistancePct>20) blocks.push('Stop distance is too wide for controlled position sizing.');
  if(sourceDown>0) blocks.push('One or more market sources are unavailable.');
+ if(Number.isFinite(liquidityConfidence)&&liquidityConfidence<35) blocks.push('Liquidity confidence is too low for controlled execution.');
  if(String(i.advanced?.sourceHealth?.spot||'').toLowerCase()==='down'||String(i.advanced?.sourceHealth?.futures||'').toLowerCase()==='down') blocks.push('Critical spot/futures market data is unavailable.');
  if(remainingDaily<=0) blocks.push('Daily loss budget is exhausted.');
  if(maxPosition<=0||maxOrder<=0) blocks.push('Configured position/order risk limits are invalid.');
@@ -79,6 +81,7 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  else if(volatility==='HIGH') reasons.push('High volatility reduced position size.');
  if(imbalance>0.35) reasons.push('Order-book imbalance reduced exposure.');
  if(spread>0.08) reasons.push('Wide spread reduced exposure.');
+ if(Number.isFinite(liquidityConfidence)&&liquidityConfidence<60) reasons.push('Low liquidity confidence reduced exposure.');
  if(confidence<70) reasons.push('Confidence below 70% reduced exposure.');
  if(dailyLoss>0) reasons.push('Existing daily loss reduced remaining risk budget.');
  if(exposure>0) reasons.push('Existing exposure reduced new position size.');
