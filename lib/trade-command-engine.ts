@@ -28,7 +28,7 @@ export async function resolveActiveTrades(userId:string,symbol?:string){
 
 export async function createCommand(userId:string,tradeId:string|undefined,intent:TradeIntent,payload:any,idempotencyKey:string){
  await ensureExchangeSchema();
- const r=await db().query(`INSERT INTO trade_commands(trade_id,user_id,intent,payload,status,idempotency_key) VALUES($1,$2,$3,$4,'RECEIVED',$5) ON CONFLICT(user_id,idempotency_key) DO UPDATE SET updated_at=now() RETURNING id,status,trade_id,intent,payload,idempotency_key`,[tradeId||null,userId,intent,payload,idempotencyKey]);
+ const r=await db().query(`INSERT INTO trade_commands(trade_id,user_id,intent,payload,status,idempotency_key) VALUES($1,$2,$3,$4,CASE WHEN $3 IN ('CONDITIONAL_CLOSE','MONITOR_ONLY') THEN 'ARMED' ELSE 'RECEIVED' END,$5) ON CONFLICT(user_id,idempotency_key) DO UPDATE SET updated_at=now() RETURNING id,status,trade_id,intent,payload,idempotency_key`,[tradeId||null,userId,intent,payload,idempotencyKey]);
  return r.rows[0];
 }
 
