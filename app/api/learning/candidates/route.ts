@@ -1,5 +1,5 @@
 import {NextResponse} from 'next/server';
-import {runBacktest,validateLearningResult} from '@/lib/learning-lab';
+import {runBacktest,runForwardTest,validateLearningResult} from '@/lib/learning-lab';
 import {createCandidate,listCandidates,evaluateCandidate,promoteCandidate,rollbackCandidate,getCandidate,compareCandidates,attachForwardMetrics} from '@/lib/strategy-evolution';
 
 export async function GET(){try{return NextResponse.json({ok:true,candidates:await listCandidates()});}catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:'Candidate list failed'},{status:500});}}
@@ -16,7 +16,7 @@ export async function POST(req:Request){
   if(action==='forward-test'){
    const id=String(body?.id||'');
    if(!body?.backtest?.candles||!Array.isArray(body.backtest.candles)||!Array.isArray(body.backtest.signals))return NextResponse.json({ok:false,error:'Forward-test candles and signals are required.'},{status:400});
-   const result=runBacktest(body.backtest);
+   const result=runForwardTest(body.backtest,Number(body?.trainRatio||0.7));
    const candidate=await attachForwardMetrics(id,result);
    return NextResponse.json({ok:true,candidate,forwardTest:result,validation:validateLearningResult(result)});
   }
