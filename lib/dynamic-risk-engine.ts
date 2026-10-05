@@ -12,6 +12,8 @@ export type DynamicRiskInput={
  confidence:number;
  dailyRealizedLoss:number;
  openExposure:number;
+ symbolExposure:number;
+ consecutiveLosses:number;
 };
 export type DynamicRiskResult={
  allowed:boolean;
@@ -23,7 +25,7 @@ export type DynamicRiskResult={
  riskMultiplier:number;
  reasons:string[];
  blocks:string[];
- factors:{volatility:number;liquidity:number;confidence:number;drawdown:number;exposure:number};
+ factors:{volatility:number;liquidity:number;confidence:number;drawdown:number;exposure:number;concentration:number;lossStreak:number};
 };
 const clamp=(n:number,min:number,max:number)=>Math.max(min,Math.min(max,n));
 const finite=(n:unknown):n is number=>typeof n==='number'&&Number.isFinite(n);
@@ -42,6 +44,8 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const maxOrder=Number(i.risk.max_order_usd||0);
  const dailyLoss=Math.max(0,Number(i.dailyRealizedLoss)||0);
  const exposure=Math.max(0,Number(i.openExposure)||0);
+ const symbolExposure=Math.max(0,Number(i.symbolExposure)||0);
+ const consecutiveLosses=Math.max(0,Math.floor(Number(i.consecutiveLosses)||0));
  const remainingDaily=Math.max(0,maxDaily-dailyLoss);
  if(!finite(entry)||entry<=0||!finite(stop)||stop<=0||stopDistancePct<=0) blocks.push('Invalid entry/stop distance.');
  if(stopDistancePct>20) blocks.push('Stop distance is too wide for controlled position sizing.');
@@ -54,7 +58,9 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const confMult=clamp(0.55+confidence/200,0.55,1.05);
  const drawdownMult=clamp(1-dailyLoss/Math.max(maxDaily,1),0.1,1);
  const exposureMult=clamp(1-exposure/Math.max(maxPosition,1),0.1,1);
- const riskMultiplier=clamp(volMult*liqMult*spreadMult*confMult*drawdownMult*exposureMult,0.05,1);
+ const concentrationMult=clamp(1-symbolExposure/Math.max(maxPosition,1),0.15,1);
+ const streakMult=consecutiveLosses>=5?0.1:consecutiveLosses>=4?0.35:consecutiveLosses>=3?0.55:consecutiveLosses>=2?0.75:1;
+ const riskMultiplier=clamp(volMult*liqMult*spreadMult*confMult*drawdownMult*exposureMult*concentrationMult*streakMult,0.05,1);
  const baseRisk=Math.min(remainingDaily*0.25,maxDaily*0.02);
  const riskBudgetUsd=Math.max(0,baseRisk*riskMultiplier);
  const recommendedQuantity=entry>0?riskBudgetUsd/Math.abs(entry-stop):0;
@@ -76,7 +82,10 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  if(confidence<70) reasons.push('Confidence below 70% reduced exposure.');
  if(dailyLoss>0) reasons.push('Existing daily loss reduced remaining risk budget.');
  if(exposure>0) reasons.push('Existing exposure reduced new position size.');
+ if(symbolExposure>0) reasons.push('Existing symbol concentration reduced new position size.');
+ if(consecutiveLosses>=3) reasons.push('Consecutive losses reduced the next risk budget.');
+ if(consecutiveLosses>=5) blocks.push('Risk engine is in loss-streak lockout after five consecutive losses.');
  if(expectedR!==null&&expectedR<1.5) blocks.push('Risk/reward is below the 1.5R minimum.');
  if(riskMultiplier<0.15) blocks.push('Dynamic risk multiplier is below the safety floor.');
- return {allowed:blocks.length===0&&recommendedNotionalUsd>0,riskBudgetUsd,recommendedQuantity,recommendedNotionalUsd,stopDistancePct,expectedR,riskMultiplier,levelQuality,factors:{volatility:volMult,liquidity:liqMult,confidence:confMult,drawdown:drawdownMult,exposure:exposureMult},reasons,blocks};
+ return {allowed:blocks.length===0&&recommendedNotionalUsd>0,riskBudgetUsd,recommendedQuantity,recommendedNotionalUsd,stopDistancePct,expectedR,riskMultiplier,levelQuality,factors:{volatility:volMult,liquidity:liqMult,confidence:confMult,drawdown:drawdownMult,exposure:exposureMult,concentration:concentrationMult,lossStreak:streakMult},reasons,blocks};
 }
