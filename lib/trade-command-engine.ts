@@ -12,7 +12,7 @@ export function parseTradeIntent(input:string){
  if(/سر.?استاپ|استاپ.*ورود|break.?even|breakeven/.test(text))return {intent:'MOVE_STOP_TO_BREAKEVEN' as TradeIntent,confidence:.95,needsClarification:false};
  if(/استاپ.*نزدیک|tighten.*stop/.test(text))return {intent:'TIGHTEN_STOP' as TradeIntent,confidence:.92,needsClarification:false};
  if(/فقط.*مانیتور|مانیتور.*کن|دست نزن|monitor only/.test(text))return {intent:'MONITOR_ONLY' as TradeIntent,confidence:.95,needsClarification:false};
- if(/اگر.*ضرر.*بیشتر|در صورت.*ضرر|conditional.*close/.test(text))return {intent:'CONDITIONAL_CLOSE' as TradeIntent,confidence:.9,needsClarification:false};
+ if(/اگر|در صورت|conditional/.test(text)&&/(ضرر|loss|سود|profit).*(\d+(?:\.\d+)?)\s*%/.test(text)){const m=text.match(/(ضرر|loss|سود|profit).*?(\d+(?:\.\d+)?)\s*%/); const kind=/سود|profit/.test(text)?'PROFIT_PCT':'LOSS_PCT'; return {intent:'CONDITIONAL_CLOSE' as TradeIntent,conditionType:kind,conditionValue:Number(m?.[2]),confidence:.92,needsClarification:false};}
  if(/ببند|بستن|بسته.*کن|close|exit/.test(text))return {intent:'CLOSE_POSITION' as TradeIntent,confidence:.97,needsClarification:false};
  return {intent:'UNKNOWN' as TradeIntent,confidence:.2,needsClarification:true,reason:'No safe trading intent matched.'};
 }
