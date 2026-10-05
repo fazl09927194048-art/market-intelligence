@@ -61,6 +61,45 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[tradeId,trade.state,'PROTECTED','PROTECTION_PLACED','DRO_TOOL','Stop-loss and take-profit orders submitted']);
  return {mode,protected:true,stop,takeProfit:tp,verified:true};
 }
+export async function executeStopAdjustmentCommand(userId:string,tradeId:string,intent:Extract<TradeIntent,'MOVE_STOP_TO_BREAKEVEN'|'TIGHTEN_STOP'>,requestedStop?:number){
+ await ensureExchangeSchema();
+ const r=await db().query("SELECT * FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[tradeId,userId]);
+ if(!r.rows[0]) throw new Error('Trade not found.');
+ const trade=r.rows[0]; const risk=await getTradingRisk(userId);
+ if(risk.emergency_stop) throw new Error('Emergency stop is active.');
+ if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot stop adjustment currently supports long BUY positions only.');
+ const entry=Number(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
+ const current=Number(trade.current_price); const oldStop=Number(trade.stop_price);
+ if(!Number.isFinite(entry)||entry<=0) throw new Error('Trade has no valid entry price.');
+ let stop=intent==='MOVE_STOP_TO_BREAKEVEN'?entry:Number(requestedStop);
+ if(!Number.isFinite(stop)||stop<=0) throw new Error('A valid stop price is required.');
+ if(intent==='MOVE_STOP_TO_BREAKEVEN'&&Number.isFinite(current)&&current<=entry) throw new Error('Break-even is not allowed while the position is not above entry.');
+ if(intent==='TIGHTEN_STOP'){
+   if(!Number.isFinite(current)||!Number.isFinite(oldStop)||current<=entry) throw new Error('Tighten stop requires a profitable position with an existing stop.');
+   if(stop<=oldStop||stop>=current) throw new Error('Tightened stop must be above the existing stop and below current price.');
+ }
+ if(stop>=current&&Number.isFinite(current)) throw new Error('Stop must remain below current price.');
+ const x=await getExchange(userId,String(trade.exchange_id));
+ if(String(x.record.name).toLowerCase()!=='binance'||!x.record.permissions?.trading) throw new Error('Binance trading permission is required.');
+ const mode=String(risk.execution_mode||'PAPER').toUpperCase();
+ if(mode==='PAPER') return {mode,simulated:true,stopPrice:stop,verified:true};
+ if(mode==='CONFIRM') return {mode,requiresConfirmation:true,stopPrice:stop,verified:false};
+ if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection adjustment is not enabled.');
+ const p=await db().query("SELECT * FROM trade_protection WHERE trade_id=$1 LIMIT 1",[tradeId]);
+ const protection=p.rows[0];
+ const qty=Number(trade.remaining_quantity||trade.filled_quantity||trade.original_quantity||0);
+ if(qty<=0) throw new Error('No protected quantity is available.');
+ if(protection?.stop_order_id){try{await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));}catch(e){throw new Error('Existing stop could not be cancelled safely; no replacement was submitted.');}}
+ const cid='FLI_SL_'+crypto.randomBytes(10).toString('hex');
+ let order:any;
+ try{order=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stop),stopPrice:String(stop),newOrderRespType:'FULL',clientOrderId:cid});}
+ catch(e){return {mode,failed:true,previousStop:oldStop,stopPrice:stop,error:e instanceof Error?e.message:'Stop replacement failed'};}
+ await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,stop_price=EXCLUDED.stop_price,status='PROTECTED',verified_at=now(),updated_at=now()",[tradeId,String(order.orderId||''),protection?.take_profit_order_id||null,stop,trade.take_profit_price??null]);
+ await db().query("UPDATE trades SET stop_price=$1,state=CASE WHEN state IN ('CLOSING','CLOSED') THEN state ELSE 'PROTECTED' END,updated_at=now() WHERE id=$2",[stop,tradeId]);
+ await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,trade.state,'PROTECTED',intent,'DRO_TOOL','Stop adjusted',order]);
+ return {mode,adjusted:true,stopPrice:stop,order,verified:true};
+}
+
 export async function executeCloseCommand(userId:string,tradeId:string,intent:TradeIntent,quantityPct=100){
  await ensureExchangeSchema();
  const t=await db().query("SELECT * FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[tradeId,userId]);
