@@ -45,14 +45,14 @@ export function buildImageTradePlan(vision: VisionResult): ImageTradePlan {
     const s=supports.find(x=>x<p*0.999);
     const r=resistances.filter(x=>x>p*1.001).slice(0,3);
     if(s) sl=s-(p-s)*0.08;
-    tps=r.length?r:[p*1.01,p*1.02,p*1.03];
+    tps=r;
   } else {
     const r=resistances.find(x=>x>p*1.001);
     const s=resistances.length?supports.filter(x=>x<p*0.999).slice(0,3):[];
     if(r) sl=r+(r-p)*0.08;
-    tps=s.length?s:[p*0.99,p*0.98,p*0.97];
+    tps=s;
   }
-  if(sl===null){warnings.push('No readable structural stop level was found; image-only SL is not confirmed.'); return {available:false,side,entry:p,stopLoss:null,takeProfits:tps,stopLossPct:null,takeProfitPcts:tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100),riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings};}
+  if(sl===null || tps.length===0){warnings.push(sl===null?'No readable structural stop level was found; image-only SL is not confirmed.':'No readable structural take-profit level was found; image-only TP is not confirmed.'); return {available:false,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:sl===null?null:(side==='LONG'?(sl/p-1)*100:(1-sl/p)*100),takeProfitPcts:tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100),riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings};}
   const stopPct=side==='LONG'?(sl/p-1)*100:(1-sl/p)*100;
   const tpp=tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100);
   const risk=Math.abs(p-sl); const rr=tps.length?Math.abs(tps[0]-p)/risk:null;
