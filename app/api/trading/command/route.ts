@@ -12,6 +12,7 @@ export async function POST(req:NextRequest){
   const text=String(body.text||body.command||'');
   const parsed=parseTradeIntent(text);
   if(parsed.intent==='UNKNOWN')return NextResponse.json({ok:false,parsed,trades:await resolveActiveTrades(userId)},{status:400});
+  if(parsed.needsClarification)return NextResponse.json({ok:false,parsed,requiresClarification:true,message:'The command is ambiguous and no trade action was executed.'},{status:400});
   const symbol=body.symbol?String(body.symbol).toUpperCase():undefined;
   const trades=await resolveActiveTrades(userId,symbol);
   let tradeId=body.tradeId?String(body.tradeId):undefined;
