@@ -9,7 +9,7 @@ import { cookies } from 'next/headers';
 import crypto from 'node:crypto';
 import { listExchanges, getExchange, getTradingRisk, audit } from '@/lib/exchange/db';
 import { exchangeManager } from '@/lib/exchange/manager';
-import { analyzeChartImage } from '@/lib/chart-vision';
+import { analyzeChartImage, buildImageTradePlan } from '@/lib/chart-vision';
 
 export const dynamic = 'force-dynamic';
 
@@ -217,6 +217,7 @@ export async function POST(request: NextRequest) {
     const clientHistory = normalizeHistory(body?.history);
     const history = clientHistory.length ? clientHistory : getConversationContext(12);
     const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
+    const imageTradePlan = chartVision ? buildImageTradePlan(chartVision) : null;
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
     rememberConversation('user', message);
@@ -254,11 +255,13 @@ export async function POST(request: NextRequest) {
           chartEnabled: Boolean(body?.toolContext?.chart),
           tradePlan: centralIntelligence.tradePlan,
           chartVision,
+          imageTradePlan,
           imageIntelligence: imageData ? {
             visionAvailable: Boolean(chartVision?.available),
             evidenceRoutedToAnalysts: Boolean(chartVision?.available),
             specialistCoverage: Array.isArray(centralIntelligence.analysts) ? centralIntelligence.analysts.length : 0,
             finalDecisionOwner: 'DRO',
+            imageTradePlan,
             finalTradePlan: centralIntelligence.tradePlan,
             decisionTrace: centralIntelligence.decisionTrace,
             consensus: centralIntelligence.consensus,
