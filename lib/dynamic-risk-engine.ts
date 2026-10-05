@@ -1,0 +1,73 @@
+import type { AdvancedMarketData } from './market-advanced';
+import type { TechnicalAnalysis } from './technical';
+
+export type DynamicRiskInput={
+ risk:any;
+ advanced:AdvancedMarketData;
+ technical:TechnicalAnalysis;
+ side:'BUY'|'SELL';
+ entry:number;
+ stop:number;
+ takeProfit?:number|null;
+ confidence:number;
+ dailyRealizedLoss:number;
+ openExposure:number;
+};
+export type DynamicRiskResult={
+ allowed:boolean;
+ riskBudgetUsd:number;
+ recommendedQuantity:number;
+ recommendedNotionalUsd:number;
+ stopDistancePct:number;
+ expectedR:number|null;
+ riskMultiplier:number;
+ reasons:string[];
+ blocks:string[];
+ factors:{volatility:number;liquidity:number;confidence:number;drawdown:number;exposure:number};
+};
+const clamp=(n:number,min:number,max:number)=>Math.max(min,Math.min(max,n));
+const finite=(n:unknown):n is number=>typeof n==='number'&&Number.isFinite(n);
+
+export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
+ const reasons:string[]=[]; const blocks:string[]=[];
+ const entry=Math.abs(i.entry), stop=Math.abs(i.stop);
+ const stopDistancePct=entry>0?Math.abs(entry-stop)/entry*100:Infinity;
+ const volatility=String(i.technical?.volatility?.regime||'UNKNOWN').toUpperCase();
+ const spread=Number(i.advanced?.microstructure?.spreadPct||0);
+ const imbalance=Math.abs(Number(i.advanced?.microstructure?.orderBookImbalance||0));
+ const sourceDown=Object.values(i.advanced?.sourceHealth||{}).filter(v=>v==='down').length;
+ const confidence=clamp(Number(i.confidence)||0,0,100);
+ const maxDaily=Number(i.risk.max_daily_loss_usd||0);
+ const maxPosition=Number(i.risk.max_position_usd||0);
+ const maxOrder=Number(i.risk.max_order_usd||0);
+ const dailyLoss=Math.max(0,Number(i.dailyRealizedLoss)||0);
+ const exposure=Math.max(0,Number(i.openExposure)||0);
+ const remainingDaily=Math.max(0,maxDaily-dailyLoss);
+ if(!finite(entry)||entry<=0||!finite(stop)||stop<=0||stopDistancePct<=0) blocks.push('Invalid entry/stop distance.');
+ if(stopDistancePct>20) blocks.push('Stop distance is too wide for controlled position sizing.');
+ if(sourceDown>0) blocks.push('One or more market sources are unavailable.');
+ if(String(i.advanced?.sourceHealth?.spot||'').toLowerCase()==='down'||String(i.advanced?.sourceHealth?.futures||'').toLowerCase()==='down') blocks.push('Critical spot/futures market data is unavailable.');
+ if(remainingDaily<=0) blocks.push('Daily loss budget is exhausted.');
+ if(maxPosition<=0||maxOrder<=0) blocks.push('Configured position/order risk limits are invalid.');
+ const volMult=volatility==='EXTREME'?0.35:volatility==='HIGH'?0.55:volatility==='LOW'?1.05:0.85;
+ const liqMult=clamp(1-imbalance*0.55,0.45,1); const spreadMult=clamp(1-spread*8,0.5,1);
+ const confMult=clamp(0.55+confidence/200,0.55,1.05);
+ const drawdownMult=clamp(1-dailyLoss/Math.max(maxDaily,1),0.1,1);
+ const exposureMult=clamp(1-exposure/Math.max(maxPosition,1),0.1,1);
+ const riskMultiplier=clamp(volMult*liqMult*spreadMult*confMult*drawdownMult*exposureMult,0.05,1);
+ const baseRisk=Math.min(remainingDaily*0.25,maxDaily*0.02);
+ const riskBudgetUsd=Math.max(0,baseRisk*riskMultiplier);
+ const recommendedQuantity=entry>0?riskBudgetUsd/Math.abs(entry-stop):0;
+ const recommendedNotionalUsd=Math.min(maxPosition,Math.min(maxOrder,recommendedQuantity*entry));
+ const expectedR=finite(i.takeProfit)&&i.takeProfit!>0?Math.abs(i.takeProfit-entry)/Math.abs(entry-stop):null;
+ if(volatility==='EXTREME') reasons.push('Extreme volatility reduced risk budget.');
+ else if(volatility==='HIGH') reasons.push('High volatility reduced position size.');
+ if(imbalance>0.35) reasons.push('Order-book imbalance reduced exposure.');
+ if(spread>0.08) reasons.push('Wide spread reduced exposure.');
+ if(confidence<70) reasons.push('Confidence below 70% reduced exposure.');
+ if(dailyLoss>0) reasons.push('Existing daily loss reduced remaining risk budget.');
+ if(exposure>0) reasons.push('Existing exposure reduced new position size.');
+ if(expectedR!==null&&expectedR<1.5) blocks.push('Risk/reward is below the 1.5R minimum.');
+ if(riskMultiplier<0.15) blocks.push('Dynamic risk multiplier is below the safety floor.');
+ return {allowed:blocks.length===0&&recommendedNotionalUsd>0,riskBudgetUsd,recommendedQuantity,recommendedNotionalUsd,stopDistancePct,expectedR,riskMultiplier,factors:{volatility:volMult,liquidity:liqMult,confidence:confMult,drawdown:drawdownMult,exposure:exposureMult},reasons,blocks};
+}
