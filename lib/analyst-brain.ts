@@ -4,12 +4,13 @@ import type { NewsItem } from './news-intelligence';
 import { ANALYSTS } from './analysts';
 import { buildMemoryContext, initializePersistentMemory, rememberAnalystOpinions, getAdaptiveAnalystWeight } from './analyst-memory';
 import { detectMarketRegime } from './market-regime';
+import type { ChartVisionContext } from './signal';
 
 export type AnalystOpinion = { id:string; name:string; thesis:string; direction:'LONG'|'SHORT'|'NEUTRAL'; score:number; confidence:number; evidence:string[]; conflicts:string[]; independentMethod:string; memory?:{observations:number;evaluatedPredictions:number;winRate:number|null;averageReturnPct:number|null;currentWeight:number;recentLessons:string[]}; };
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 const dir=(s:number):AnalystOpinion['direction']=>s>=25?'LONG':s<=-25?'SHORT':'NEUTRAL';
 
-export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[], interval='15m'):Promise<AnalystOpinion[]>{
+export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalysis, news:NewsItem[], interval='15m', vision?:ChartVisionContext|null):Promise<AnalystOpinion[]>{
   await initializePersistentMemory();
   const r=t.indicators.rsi14??50, ema20=t.indicators.ema20, ema50=t.indicators.ema50, macd=t.indicators.macd, ms=t.indicators.macdSignal;
   const imb=t.liquidity.imbalance??0, funding=data.futures.fundingRate??0, candles=data.futures.candles.length?data.futures.candles:data.spot.candles;
@@ -56,7 +57,17 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
       case 'verifier': s=0; conflicts.push(`Data coverage ${t.confidence}% and ${candles.length} candles verified.`); method='data integrity verification'; break;
       case 'consensus': s=base; method='final weighted consensus layer'; break;
     }
-    const rawScore=s, effectiveWeight=memory.effectiveWeight;
+    const rawScoreBeforeVision=s;
+    const visionDirection=vision?.direction==='BULLISH'?'LONG':vision?.direction==='BEARISH'?'SHORT':'NEUTRAL';
+    const visionConfidence=clamp(Number(vision?.confidence??0),0,100);
+    if(vision && visionDirection!=='NEUTRAL' && visionConfidence>=55){
+      const familyVisual=['trend','structure','support','resistance','pattern','breakout','fibonacci'].includes(a.id)?0.22:['volume','liquidity','orderflow'].includes(a.id)?0.14:0.06;
+      const visualSigned=(visionDirection==='LONG'?1:-1)*visionConfidence*familyVisual;
+      s += visualSigned;
+    }
+    if(vision?.available===false && a.id==='verifier') conflicts.push('Semantic chart vision is unavailable; no visual facts were promoted to verified evidence.');
+    if(vision && a.id==='critic' && visionDirection!=='NEUTRAL' && Math.abs(rawScoreBeforeVision)>20 && ((rawScoreBeforeVision>0)!==(visionDirection==='LONG'))) conflicts.push('Visual evidence conflicts with the analyst\'s deterministic directional evidence.');
+    const effectiveWeight=memory.effectiveWeight;
     evidence.push(`Adaptive weighting: ${regimeSnapshot.regime} × symbol/timeframe performance, recency and sample-size gate.`);
     s=rawScore*effectiveWeight;
     if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${effectiveWeight.toFixed(3)}.`);
@@ -65,6 +76,13 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
     if (memory.profile.recentLessons.length) evidence.push(`Relevant lessons retained: ${memory.profile.recentLessons.slice(-3).join(' | ')}`);
     if(t.volatility.regime==='HIGH'&&Math.abs(s)>30) conflicts.push('High volatility reduces confidence.');
     if(news.some(n=>n.impact==='BREAKING')) conflicts.push('Breaking news can invalidate technical assumptions.');
+    if(vision?.available){
+      evidence.push(`Visual evidence packet received: ${visionDirection} at ${visionConfidence}% confidence, quality ${Number(vision.visualQuality??0)}%.`);
+      if(vision.timeframe) evidence.push(`Image timeframe observed: ${vision.timeframe}.`);
+      if(vision.marketStructure) evidence.push(`Image market structure: ${vision.marketStructure}.`);
+      if(vision.indicatorContext) evidence.push(`Visible indicators: ${vision.indicatorContext}.`);
+      if(vision.patterns?.length) evidence.push(`Visible patterns: ${vision.patterns.slice(0,4).join(', ')}.`);
+    }
     evidence.push(method);
     const confidence=clamp(Math.round(45+Math.abs(s)*0.55+(t.confidence-75)*0.25-conflicts.length*5),0,96);
     return {id:a.id,name:a.name,thesis:`Independent ${a.specialty} view using ${method}. Adaptive weight ${effectiveWeight.toFixed(3)}.`,direction:dir(s),score:Math.round(clamp(s,-100,100)),confidence,evidence,conflicts,independentMethod:method,memory:{observations:memory.profile.observations,evaluatedPredictions:memory.profile.evaluatedPredictions,winRate:memory.profile.winRate,averageReturnPct:memory.profile.averageReturnPct,currentWeight:effectiveWeight,recentLessons:memory.profile.recentLessons}};
