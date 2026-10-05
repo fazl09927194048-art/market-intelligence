@@ -145,23 +145,7 @@ export function buildForecast(data: AdvancedMarketData, technical: TechnicalAnal
   return { bias, horizon:'next 4-12 candles', confidence:clamp(Math.round(technical.confidence * 0.8 + Math.abs((technical.indicators.rsi14 ?? 50)-50)*0.3),0,90), expectedLow:price-atr*multiplier, expectedHigh:price+atr*multiplier, evidence:[`Trend: ${technical.structure.trend}.`,`Volatility regime: ${technical.volatility.regime}.`,`RSI14: ${technical.indicators.rsi14?.toFixed(1) ?? 'n/a'}.`], risks:['Forecast range is scenario-based, not a guaranteed price target.','Sudden news or liquidity changes can invalidate the setup.'], invalidation:'A confirmed structure reversal invalidates the directional bias.' };
 }
 
-export type ChartVisionContext = {
-  direction?: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | 'UNKNOWN';
-  confidence?: number;
-  trend?: string;
-  support?: number[];
-  resistance?: number[];
-  patterns?: string[];
-  invalidation?: string | null;
-  evidence?: string[];
-  timeframe?: string | null;
-  marketStructure?: string | null;
-  liquidity?: string | null;
-  volumeContext?: string | null;
-  indicatorContext?: string | null;
-  visualQuality?: number;
-  uncertainty?: string[];
-};
+
 
 export function applyChartVision(signal: SignalResult, vision?: ChartVisionContext | null): SignalResult {
   if (!vision || vision.direction === 'UNKNOWN' || !Number.isFinite(Number(vision.confidence))) return signal;
