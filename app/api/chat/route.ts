@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import crypto from 'node:crypto';
 import { listExchanges, getExchange, getTradingRisk, audit } from '@/lib/exchange/db';
 import { exchangeManager } from '@/lib/exchange/manager';
+import { analyzeChartImage } from '@/lib/chart-vision';
 
 export const dynamic = 'force-dynamic';
 
@@ -215,7 +216,8 @@ export async function POST(request: NextRequest) {
 
     const clientHistory = normalizeHistory(body?.history);
     const history = clientHistory.length ? clientHistory : getConversationContext(12);
-    const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, null);
+    const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
+    const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
     rememberConversation('user', message);
     const prediction = recordPrediction({
@@ -236,7 +238,8 @@ export async function POST(request: NextRequest) {
     }
 
     const work = (async () => {
-      const text = buildIndependentReply(centralIntelligence, message, Boolean(imageData), history);
+      const responseCycle=imageData?{...centralIntelligence,chartVision}:centralIntelligence;
+      const text = buildIndependentReply(responseCycle, message, Boolean(imageData), history);
       rememberConversation('assistant', text);
       return {
         status: 200,
@@ -250,7 +253,7 @@ export async function POST(request: NextRequest) {
           imageAttached: Boolean(imageData),
           chartEnabled: Boolean(body?.toolContext?.chart),
           tradePlan: centralIntelligence.tradePlan,
-          chartVision: null,
+          chartVision,\n          imageIntelligence: imageData ? {\n            visionAvailable: Boolean(chartVision?.available),\n            evidenceRoutedToAnalysts: Boolean(chartVision?.available),\n            specialistCoverage: Array.isArray(centralIntelligence.analysts) ? centralIntelligence.analysts.length : 0,\n            finalDecisionOwner: 'DRO',\n            finalTradePlan: centralIntelligence.tradePlan,\n            decisionTrace: centralIntelligence.decisionTrace,\n            consensus: centralIntelligence.consensus,\n            risk: centralIntelligence.risk,\n            invalidation: centralIntelligence.invalidation,\n            scenarios: centralIntelligence.scenarios,\n          } : null,
           intelligence: {
             score: centralIntelligence.intelligenceScore,
             signal: centralIntelligence.signal,
