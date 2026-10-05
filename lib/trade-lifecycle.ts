@@ -68,7 +68,16 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
     if(nextTrade!==tradeState){
      await db().query('INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)',[row.trade_id,tradeState,nextTrade,'EXCHANGE_RECONCILIATION','system','Remote exchange state synchronized',remote]);
      events++;
-     if(nextTrade==='CLOSED') await finalizeTradeOutcome(userId,row.trade_id);
+     if(nextTrade==='CLOSED'){
+      await finalizeTradeOutcome(userId,row.trade_id);
+      if(String(row.trade_state||'').toUpperCase()==='CLOSING'){
+       const originals=await db().query("UPDATE trades SET state='CLOSED',closed_at=COALESCE(closed_at,now()),updated_at=now() WHERE user_id=$1 AND exchange_id=$2 AND symbol=$3 AND state='CLOSING' AND id<>$4 RETURNING id",[userId,exchangeId,row.symbol,row.trade_id]);
+       for(const original of originals.rows){
+        await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,'CLOSING','CLOSED','POSITION_CLOSE_RECONCILED','system','Closing order filled on exchange')",[original.id]);
+        await finalizeTradeOutcome(userId,original.id);
+       }
+      }
+     }
     }
    }
    if(TERMINAL.has(nextOrder))terminal++;else open++;
