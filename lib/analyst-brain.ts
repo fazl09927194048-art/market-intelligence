@@ -69,7 +69,7 @@ export async function runAnalystBrain(data:AdvancedMarketData, t:TechnicalAnalys
     if(vision && a.id==='critic' && visionDirection!=='NEUTRAL' && Math.abs(rawScoreBeforeVision)>20 && ((rawScoreBeforeVision>0)!==(visionDirection==='LONG'))) conflicts.push('Visual evidence conflicts with the analyst\'s deterministic directional evidence.');
     const effectiveWeight=memory.effectiveWeight;
     evidence.push(`Adaptive weighting: ${regimeSnapshot.regime} × symbol/timeframe performance, recency and sample-size gate.`);
-    s=rawScore*effectiveWeight;
+    s=s*effectiveWeight;
     if (memory.profile.evaluatedPredictions>=20) evidence.push(`Historical performance weight: ${effectiveWeight.toFixed(3)}.`);
     if (memory.profile.evaluatedPredictions>=12 && effectiveWeight!==memory.profile.currentWeight) evidence.push(`Regime-aware adjustment active for ${regime}: ${effectiveWeight.toFixed(3)}.`);
     if (memory.memories.length) evidence.push(`Retrieved ${memory.memories.length} relevant memory records for ${data.symbol}.`);
