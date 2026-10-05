@@ -1,6 +1,6 @@
 import { persistForecastEvaluation } from './persistent-memory';
 
-export type ForecastEvaluation={id:string;symbol:string;forecastAt:string;evaluatedAt:string;horizonMs:number;bias:'BULLISH'|'BEARISH'|'NEUTRAL'|'UNAVAILABLE';outcome:'WIN'|'LOSS'|'NEUTRAL'|'INVALIDATED'|'PENDING';startPrice:number;endPrice:number;returnPct:number;directionCorrect:boolean|null;errorPct:number;confidence:number;calibrationGap:number|null};
+export type ForecastEvaluation={id:string;symbol:string;forecastAt:string;evaluatedAt:string;horizonMs:number;bias:'BULLISH'|'BEARISH'|'NEUTRAL'|'UNAVAILABLE';outcome:'WIN'|'LOSS'|'NEUTRAL'|'INVALIDATED'|'PENDING';startPrice:number;endPrice:number;returnPct:number;directionCorrect:boolean|null;errorPct:number;confidence:number;calibrationGap:number|null;strategyVersion?:string};
 type PathCandle={openTime:number;high:number;low:number;closeTime:number};
 const finite=(v:number|null|undefined):v is number=>v!==null&&v!==undefined&&Number.isFinite(v);
 
@@ -32,7 +32,7 @@ export function evaluateForecast(input:{id?:string;symbol:string;forecastAt:stri
   const errorPct=finite(input.expectedLow)&&finite(input.expectedHigh)?Math.max(0,end>input.expectedHigh?((end-input.expectedHigh)/start*100):end<input.expectedLow?((input.expectedLow-end)/start*100):0):0;
   const confidence=Math.max(0,Math.min(100,Number(input.confidence)||0));
   const calibrationGap=directionCorrect===null?null:Math.round((directionCorrect?100:0)-confidence);
-  return{id:input.id??`forecast-${input.symbol}-${forecastAtMs}-${horizonMs}`,symbol:input.symbol,forecastAt:new Date(forecastAtMs).toISOString(),evaluatedAt:input.now??new Date().toISOString(),horizonMs,bias:input.bias,outcome,startPrice:start,endPrice:end,returnPct:Number(ret.toFixed(6)),directionCorrect,errorPct:Number(errorPct.toFixed(6)),confidence,calibrationGap};
+  return{id:input.id??`forecast-${input.symbol}-${forecastAtMs}-${horizonMs}`,symbol:input.symbol,forecastAt:new Date(forecastAtMs).toISOString(),evaluatedAt:input.now??new Date().toISOString(),horizonMs,bias:input.bias,outcome,startPrice:start,endPrice:end,returnPct:Number(ret.toFixed(6)),directionCorrect,errorPct:Number(errorPct.toFixed(6)),confidence,calibrationGap,strategyVersion:input.strategyVersion};
 }
 
 export async function recordForecastEvaluation(evaluation:ForecastEvaluation){return persistForecastEvaluation(evaluation);}
