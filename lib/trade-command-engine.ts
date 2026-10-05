@@ -125,7 +125,7 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  const balances=await exchangeManager.balance(x.record.name,x.credentials);
  const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===base):null;
  const available=Number(row?.free||0);
- const qty=Math.floor(available*(pct/100)*1e8)/1e8;
+ const positionQty=Number(trade.remaining_quantity)>0?Number(trade.remaining_quantity):(Number(trade.filled_quantity)>0?Number(trade.filled_quantity):Number(trade.original_quantity)||0); const qty=Math.floor(Math.min(available,positionQty)*(pct/100)*1e8)/1e8;
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No available spot balance for this close command.');
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
  const clientOrderId='FLI_CMD_'+crypto.randomBytes(12).toString('hex');
