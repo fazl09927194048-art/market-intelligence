@@ -87,3 +87,36 @@ export async function createTradeForOrder(input:{userId:string;exchangeId:string
  await db().query('INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)',[tradeId,'','CREATED','TRADE_CREATED','system','Order linked to lifecycle']);
  return tradeId;
 }
+
+export async function syncActiveTradeValuations(userId:string,exchangeId:string,symbol?:string){
+ await ensureExchangeSchema();
+ const x=await getExchange(userId,exchangeId);
+ const params:any[]=[userId,exchangeId]; let where="user_id=$1 AND exchange_id=$2 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED','EMERGENCY_CLOSED')";
+ if(symbol){params.push(symbol.toUpperCase());where+=" AND symbol=$3";}
+ const rows=await db().query("SELECT * FROM trades WHERE "+where+" ORDER BY created_at DESC LIMIT 100",params);
+ let updated=0; const alerts:any[]=[];
+ for(const t of rows.rows){
+  try{
+   const ticker=await exchangeManager.ticker(x.record.name,x.credentials,t.symbol);
+   const price=num(ticker?.lastPrice??ticker?.price);
+   const entry=num(t.average_fill_price??t.submitted_price??t.planned_entry);
+   const qty=num(t.remaining_quantity??t.filled_quantity??t.original_quantity)??0;
+   if(price===undefined||entry===undefined||qty<=0) continue;
+   const side=String(t.side).toUpperCase();
+   const pnl=(side==='SELL'?(entry-price):(price-entry))*qty;
+   const pct=entry?((side==='SELL'?(entry-price):(price-entry))/entry)*100:0;
+   const mfe=Math.max(num(t.mfe)??0,pnl); const mae=Math.min(num(t.mae)??0,pnl);
+   await db().query("UPDATE trades SET current_price=$1,current_notional=$2,unrealized_pnl=$3,unrealized_pnl_pct=$4,mfe=$5,mae=$6,updated_at=now() WHERE id=$7",[price,price*qty,pnl,pct,mfe,mae,t.id]);
+   updated++;
+   const severity=pct<=-3?'CRITICAL':pct<=-1?'WARNING':pct>=3?'SUCCESS':pct>=1?'INFO':'';
+   if(severity){
+    const type=pct<=-1?'LOSS_REVIEW':'PROFIT_REVIEW';
+    const dedupe=`${t.id}:${type}:${Math.floor(pct)}`;
+    const message=pct<=-1?`Position ${t.symbol} is ${pct.toFixed(2)}% in loss; review thesis, liquidity and protection.`:`Position ${t.symbol} is ${pct.toFixed(2)}% in profit; review protection and exit context.`;
+    const a=await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(user_id,dedupe_key) DO NOTHING RETURNING id",[t.id,userId,type,severity,message,dedupe]);
+    if(a.rows[0]) alerts.push(a.rows[0]);
+   }
+  }catch(e){}
+ }
+ return {checked:rows.rows.length,updated,alerts,checkedAt:new Date().toISOString()};
+}
