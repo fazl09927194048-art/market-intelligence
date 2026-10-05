@@ -143,7 +143,19 @@ function buildIndependentReply(cycle: any, message: string, imageAttached: boole
     lines.push('', `هشدارهای داده: ${cycle.warnings.slice(0, 3).join(' | ')}`);
   }
   if (imageAttached) {
-    lines.push('', 'تصویر دریافت شد. در حالت مستقل فعلی، DRO از تصویر به‌عنوان ورودی دریافت‌شده آگاه است اما ادعای بینایی مولد نمی‌کند؛ تصمیم از موتور داده‌محور داخلی و داده زنده ساخته شده است.');
+    const v:any=cycle?.chartVision;
+    const ip:any=cycle?.imageTradePlan;
+    lines.push('', v?.available
+      ? `Chart Vision: ${v.direction} | اعتماد ${Number(v.confidence||0).toFixed(0)}% | کیفیت تصویر ${Number(v.visualQuality||0).toFixed(0)}%.`
+      : 'Chart Vision فعال نیست؛ هیچ مقدار بصری حدسی وارد تصمیم نشده است.');
+    if(v?.symbol) lines.push(`نماد تصویر: ${v.symbol} | تایم‌فریم: ${v.timeframe||'—'}.`);
+    if(v?.marketStructure) lines.push(`ساختار بازار تصویر: ${v.marketStructure}.`);
+    if(Array.isArray(v?.patterns)&&v.patterns.length) lines.push(`الگوها: ${v.patterns.slice(0,5).join(' | ')}.`);
+    if(ip?.available){
+      lines.push('', 'پلن استخراج‌شده از سطوح قابل‌خواندن تصویر:', `Entry: ${money(ip.entry)}`, `Stop Loss: ${money(ip.stopLoss)} (${Number(ip.stopLossPct||0).toFixed(2)}%)`, `TPها: ${ip.takeProfits.map((x:number,i:number)=>money(x)+` (${Number(ip.takeProfitPcts?.[i]||0).toFixed(2)}%)`).join(' | ')}`, `R/R: ${ip.riskReward ? Number(ip.riskReward).toFixed(2) : '—'}`);
+    }
+    if(Array.isArray(v?.uncertainty)&&v.uncertainty.length) lines.push(`ابهام‌های تصویر: ${v.uncertainty.slice(0,3).join(' | ')}.`);
+    lines.push(`تصمیم نهایی همچنان متعلق به DRO است و با داده زنده، تحلیلگران، نقدینگی و گیت ریسک تطبیق داده شده است.`);
   }
 
   const lower = message.toLowerCase();
