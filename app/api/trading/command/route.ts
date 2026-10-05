@@ -1,7 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server';
 import crypto from 'node:crypto';
 import {getSessionUserId} from '@/lib/exchange/session';
-import {parseTradeIntent,resolveActiveTrades,createCommand,executeCloseCommand} from '@/lib/trade-command-engine';
+import {parseTradeIntent,resolveActiveTrades,createCommand,executeCloseCommand,executeStopAdjustmentCommand} from '@/lib/trade-command-engine';
 
 export const dynamic='force-dynamic';
 
@@ -22,6 +22,11 @@ export async function POST(req:NextRequest){
   if(command.status!=='RECEIVED') return NextResponse.json({ok:true,parsed,tradeId,command,execution:'IDEMPOTENT_REPLAY',message:'This command was already processed; no duplicate exchange order was submitted.'},{headers:{'Cache-Control':'no-store'}});
   if(['CLOSE_POSITION','PARTIAL_CLOSE'].includes(parsed.intent)){
    const execution=await executeCloseCommand(userId,tradeId!,parsed.intent,Number(parsed.quantityPct||100));
+   return NextResponse.json({ok:true,parsed,tradeId,command,execution},{headers:{'Cache-Control':'no-store'}});
+  }
+  if(['MOVE_STOP_TO_BREAKEVEN','TIGHTEN_STOP'].includes(parsed.intent)){
+   const requestedStop=body.stopPrice===undefined?undefined:Number(body.stopPrice);
+   const execution=await executeStopAdjustmentCommand(userId,tradeId!,parsed.intent as any,requestedStop);
    return NextResponse.json({ok:true,parsed,tradeId,command,execution},{headers:{'Cache-Control':'no-store'}});
   }
   await createCommand(userId,tradeId,parsed.intent,{text,quantityPct:parsed.quantityPct||null,execution:'PENDING_ACTION_EXECUTOR'},idempotencyKey+'-pending');
