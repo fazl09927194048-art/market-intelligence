@@ -101,9 +101,9 @@ export async function finalizeTradeOutcome(userId:string,tradeId:string){
  await ensureExchangeSchema();
  const r=await db().query('SELECT * FROM trades WHERE id=$1 AND user_id=$2',[tradeId,userId]); const t=r.rows[0]; if(!t||String(t.state)!=='CLOSED') return false;
  const pnl=num(t.realized_pnl)??num(t.unrealized_pnl)??0; const start=new Date(t.created_at).getTime(); const end=new Date(t.closed_at||new Date()).getTime();
- await db().query(`INSERT INTO trade_outcomes(trade_id,prediction,execution,pnl,mfe,mae,duration_seconds,exit_reason,thesis_validity,prediction_at,outcome_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()) ON CONFLICT(trade_id) DO UPDATE SET pnl=EXCLUDED.pnl,mfe=EXCLUDED.mfe,mae=EXCLUDED.mae,duration_seconds=EXCLUDED.duration_seconds,exit_reason=EXCLUDED.exit_reason,thesis_validity=EXCLUDED.thesis_validity,outcome_at=now()`,
- [tradeId,JSON.stringify({plannedEntry:t.planned_entry,stop:t.stop_price,takeProfit:t.take_profit_price,cycleId:t.cycle_id}),JSON.stringify({averageFill:t.average_fill_price,fees:t.fees,slippage:t.actual_slippage}),pnl,t.mfe,t.mae,Math.max(0,Math.floor((end-start)/1000)),t.exit_reason||'CLOSED',t.thesis_status||'UNKNOWN',t.created_at]);
+ await db().query(`INSERT INTO trade_outcomes(trade_id,prediction,execution,pnl,mfe,mae,duration_seconds,exit_reason,thesis_validity,prediction_at,outcome_at,strategy_version)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now(),$11) ON CONFLICT(trade_id) DO UPDATE SET pnl=EXCLUDED.pnl,mfe=EXCLUDED.mfe,mae=EXCLUDED.mae,duration_seconds=EXCLUDED.duration_seconds,exit_reason=EXCLUDED.exit_reason,thesis_validity=EXCLUDED.thesis_validity,outcome_at=now()`,
+ [tradeId,JSON.stringify({plannedEntry:t.planned_entry,stop:t.stop_price,takeProfit:t.take_profit_price,cycleId:t.cycle_id}),JSON.stringify({averageFill:t.average_fill_price,fees:t.fees,slippage:t.actual_slippage}),pnl,t.mfe,t.mae,Math.max(0,Math.floor((end-start)/1000)),t.exit_reason||'CLOSED',t.thesis_status||'UNKNOWN',t.created_at,t.strategy_version||null]);
  return true;
 }
 
