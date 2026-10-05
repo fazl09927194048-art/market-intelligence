@@ -36,6 +36,8 @@ export async function promoteCandidate(id:string){
 export async function rollbackCandidate(id:string){
  const c=await getCandidate(id);if(!c)throw new Error('Candidate not found');
  await saveStrategyVersion({id:c.id,parentVersion:c.parentVersion,status:'ROLLED_BACK',metrics:c.metrics,forwardMetrics:c.forwardMetrics,reason:'Manual or safety rollback'});
+ const parent=await getCandidate(c.parentVersion);
+ if(parent&&parent.status!=='ROLLED_BACK') await setActiveStrategyVersion(parent.id); else await setActiveStrategyVersion('baseline');
  return {...c,status:'ROLLED_BACK' as const,reason:'Manual or safety rollback'};
 }
 export async function listCandidates(){const rows=await listPersistedStrategyVersions(100);return rows.map(toCandidate).filter(c=>['CANDIDATE','PROMOTED','REJECTED','ROLLED_BACK'].includes(c.status));}
