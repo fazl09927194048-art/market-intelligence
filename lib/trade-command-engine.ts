@@ -52,9 +52,14 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(mode==='CONFIRM') return {mode,requiresConfirmation:true,verified:false,payload};
  if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection is not enabled by the current execution policy.');
  const stopClient='FLI_SL_'+crypto.randomBytes(10).toString('hex'), tpClient='FLI_TP_'+crypto.randomBytes(10).toString('hex');
- const stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});
+ let stop:any;
+ try{stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});}
+ catch(firstError){
+  try{stop=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,stopClient);}catch{throw firstError;}
+ }
  let tp:any=null;
  try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
+ catch(firstError){try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}catch{try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw firstError;}}
  catch(e){try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw e;}
  await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT DO NOTHING",[tradeId,String(stop.orderId||''),String(tp?.orderId||''),stopPrice,takeProfitPrice]);
  await db().query("UPDATE trades SET stop_price=$1,take_profit_price=$2,state='PROTECTED',updated_at=now() WHERE id=$3",[stopPrice,takeProfitPrice,tradeId]);
