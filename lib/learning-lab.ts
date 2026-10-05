@@ -9,3 +9,9 @@ export function runBacktest(i:BacktestRequest):BacktestResult{
  return {trades:rows.length,wins,losses,winRate:rows.length?wins/rows.length*100:0,totalReturnPct:equity-100,maxDrawdownPct:maxDd,profitFactor:grossLoss?grossWin/grossLoss:(grossWin?Infinity:0),avgReturnPct:rows.length?sum/rows.length:0,byConfidence:buckets};
 }
 export function validateLearningResult(r:BacktestResult){return {eligible:r.trades>=30&&r.profitFactor>1&&r.totalReturnPct>0&&r.maxDrawdownPct<20,reason:r.trades<30?'Insufficient sample size':r.profitFactor<=1?'Profit factor is not above 1':r.totalReturnPct<=0?'Return is not positive':r.maxDrawdownPct>=20?'Drawdown exceeds promotion threshold':'Passed evaluation gate'};}
+
+export function runForwardTest(i:BacktestRequest,trainRatio=0.7):BacktestResult{
+ const split=Math.max(1,Math.min(i.candles.length-1,Math.floor(i.candles.length*trainRatio)));
+ const forwardSignals=i.signals.filter(s=>s.index>=split);
+ return runBacktest({...i,signals:forwardSignals});
+}
