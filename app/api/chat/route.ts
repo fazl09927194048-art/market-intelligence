@@ -231,6 +231,26 @@ export async function POST(request: NextRequest) {
     const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
     const imageTradePlan = chartVision ? buildImageTradePlan(chartVision) : null;
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
+    if (imageTradePlan?.available) {
+      const liveSide = centralIntelligence.tradePlan?.side || 'NO TRADE';
+      const imageSide = imageTradePlan.side;
+      const sideConflict = liveSide !== 'NO TRADE' && liveSide !== imageSide;
+      (centralIntelligence as any).imageDecisionAudit = {
+        imageSide,
+        liveSide,
+        sideConflict,
+        imageEntry: imageTradePlan.entry,
+        imageStopLoss: imageTradePlan.stopLoss,
+        imageTakeProfits: imageTradePlan.takeProfits,
+        imageRiskReward: imageTradePlan.riskReward,
+        imageStopLossPct: imageTradePlan.stopLossPct,
+        imageTakeProfitPcts: imageTradePlan.takeProfitPcts,
+        rule: sideConflict ? 'IMAGE_LIVE_CONFLICT: DRO final decision remains NO TRADE until evidence converges.' : 'IMAGE_LIVE_CONSISTENT: image levels are candidate evidence only; live risk engine remains authoritative.'
+      };
+      if (sideConflict) {
+        centralIntelligence.warnings = [...(centralIntelligence.warnings || []), 'Image-derived direction conflicts with live DRO direction; image plan is not promoted to execution.'];
+      }
+    }
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
     rememberConversation('user', message);
     const prediction = recordPrediction({
