@@ -19,9 +19,9 @@ export async function POST(req:NextRequest){
   if(type==='LIMIT'&&(price===undefined||price<=0)) return NextResponse.json({ok:false,error:'A valid limit price is required.'},{status:400});
   const risk=await getTradingRisk(userId);
   // DRO autonomous execution must be backed by a fresh intelligence cycle, not a raw signal.
-  let droGuard:any=null;
+  let droGuard:any=null; let intelligence:any=null;
   if(modeWillBeAutonomous(b.executionMode, risk)) {
-   const cycle=await runIntelligenceCycle(symbol, String(b.interval||'15m'));
+   const cycle=await runIntelligenceCycle(symbol, String(b.interval||'15m')); intelligence=cycle;
    const plan=cycle.tradePlan;
    const requestedSide=side==='BUY'?'LONG':'SHORT';
    const confidence=Number(plan?.confidence||0);
@@ -63,7 +63,7 @@ export async function POST(req:NextRequest){
   if(droGuard){
    const realized=await db().query("SELECT COALESCE(SUM(CASE WHEN realized_pnl<0 THEN -realized_pnl ELSE 0 END),0)::numeric AS loss FROM trades WHERE user_id=$1 AND closed_at>=CURRENT_DATE",[userId]);
    const exposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId]);
-   dynamicRisk=calculateDynamicRisk({risk,advanced:({marketData:undefined,...cycle} as any).marketData||cycle.marketData,technical:cycle.technical,side,entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0)});
+   dynamicRisk=calculateDynamicRisk({risk,advanced:intelligence.marketData,technical:intelligence.technical,side,entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0)});
    const requestedQty=quantity??(quoteQuantity!/Number(droGuard.entry));
    if(!dynamicRisk.allowed) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order.',dynamicRisk},{status:403});
    if(!Number.isFinite(requestedQty)||requestedQty<=0||requestedQty>Number(dynamicRisk.recommendedQuantity)) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order: requested size exceeds the context-aware risk budget.',requestedQuantity:requestedQty,recommendedQuantity:dynamicRisk.recommendedQuantity,dynamicRisk},{status:403});
