@@ -106,7 +106,7 @@ export async function syncActiveTradeValuations(userId:string,exchangeId:string,
    const ticker=await exchangeManager.ticker(x.record.name,x.credentials,t.symbol);
    const price=num(ticker?.lastPrice??ticker?.price);
    const entry=num(t.average_fill_price??t.submitted_price??t.planned_entry);
-   const qty=num(t.remaining_quantity??t.filled_quantity??t.original_quantity)??0;
+   const remaining=num(t.remaining_quantity); const filled=num(t.filled_quantity); const original=num(t.original_quantity); const qty=(remaining!==undefined&&remaining>0?remaining:(filled!==undefined&&filled>0?filled:(original??0)));
    if(price===undefined||entry===undefined||qty<=0) continue;
    const side=String(t.side).toUpperCase();
    const pnl=(side==='SELL'?(entry-price):(price-entry))*qty;
