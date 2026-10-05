@@ -1,17 +1,22 @@
 import {NextResponse} from 'next/server';
-import {createCandidate,listCandidates,evaluateCandidate,promoteCandidate,rollbackCandidate} from '@/lib/strategy-evolution';
+import {runBacktest,validateLearningResult} from '@/lib/learning-lab';
+import {createCandidate,listCandidates,evaluateCandidate,promoteCandidate,rollbackCandidate,getCandidate} from '@/lib/strategy-evolution';
 
-export async function GET(){return NextResponse.json({ok:true,candidates:listCandidates()});}
+export async function GET(){try{return NextResponse.json({ok:true,candidates:await listCandidates()});}catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:'Candidate list failed'},{status:500});}}
 export async function POST(req:Request){
  try{
   const body=await req.json(); const action=String(body?.action||'create');
-  if(action==='create')return NextResponse.json({ok:true,candidate:createCandidate(String(body?.parentVersion||'v-current'),body?.metrics, String(body?.reason||'Backtest candidate'))});
-  if(action==='evaluate'||action==='promote'){
-   const c=listCandidates().find(x=>x.id===String(body?.id)); if(!c)return NextResponse.json({ok:false,error:'Candidate not found'},{status:404});
-   if(action==='promote')return NextResponse.json({ok:true,candidate:promoteCandidate(c.id)});
-   return NextResponse.json({ok:true,evaluation:evaluateCandidate(c)});
+  if(action==='create'){
+   if(!body?.backtest?.candles||!Array.isArray(body.backtest.candles)||!Array.isArray(body.backtest.signals))return NextResponse.json({ok:false,error:'Server-side backtest input is required.'},{status:400});
+   const result=runBacktest(body.backtest); const validation=validateLearningResult(result);
+   if(!validation.eligible)return NextResponse.json({ok:false,error:'Backtest did not pass the baseline learning gate.',result,validation},{status:422});
+   const candidate=await createCandidate(String(body?.parentVersion||'v-current'),result,String(body?.reason||'Validated backtest candidate'));
+   return NextResponse.json({ok:true,candidate,backtest:result,validation});
   }
-  if(action==='rollback')return NextResponse.json({ok:true,candidate:rollbackCandidate(String(body?.id))});
+  const id=String(body?.id||''); const c=await getCandidate(id); if(!c)return NextResponse.json({ok:false,error:'Candidate not found'},{status:404});
+  if(action==='promote')return NextResponse.json({ok:true,candidate:await promoteCandidate(c.id)});
+  if(action==='evaluate')return NextResponse.json({ok:true,evaluation:evaluateCandidate(c)});
+  if(action==='rollback')return NextResponse.json({ok:true,candidate:await rollbackCandidate(c.id)});
   return NextResponse.json({ok:false,error:'Unsupported action'},{status:400});
  }catch(error){return NextResponse.json({ok:false,error:error instanceof Error?error.message:'Candidate operation failed'},{status:400});}
 }
