@@ -33,6 +33,34 @@ export async function createCommand(userId:string,tradeId:string|undefined,inten
 }
 
 
+export async function executeProtectionCommand(userId:string,tradeId:string,stopPrice:number,takeProfitPrice:number){
+ await ensureExchangeSchema();
+ if(!Number.isFinite(stopPrice)||stopPrice<=0||!Number.isFinite(takeProfitPrice)||takeProfitPrice<=0) throw new Error('Valid stop-loss and take-profit prices are required.');
+ const t=await db().query("SELECT * FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[tradeId,userId]);
+ if(!t.rows[0]) throw new Error('Trade not found.');
+ const trade=t.rows[0]; const risk=await getTradingRisk(userId);
+ if(risk.emergency_stop) throw new Error('Emergency stop is active.');
+ const x=await getExchange(userId,String(trade.exchange_id));
+ if(String(x.record.name).toLowerCase()!=='binance') throw new Error('Protection execution currently supports Binance.');
+ if(!x.record.permissions?.trading) throw new Error('Trading permission is disabled on this API key.');
+ if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot protection currently requires a long BUY position.');
+ const qty=Number(trade.remaining_quantity||trade.filled_quantity||trade.original_quantity||0);
+ if(!Number.isFinite(qty)||qty<=0) throw new Error('No protected position quantity is available.');
+ const mode=String(risk.execution_mode||'PAPER').toUpperCase();
+ const payload={tradeId,symbol:trade.symbol,quantity:qty,stopPrice,takeProfitPrice};
+ if(mode==='PAPER') return {mode,simulated:true,verified:true,payload};
+ if(mode==='CONFIRM') return {mode,requiresConfirmation:true,verified:false,payload};
+ if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection is not enabled by the current execution policy.');
+ const stopClient='FLI_SL_'+crypto.randomBytes(10).toString('hex'), tpClient='FLI_TP_'+crypto.randomBytes(10).toString('hex');
+ const stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});
+ let tp:any=null;
+ try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
+ catch(e){try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw e;}
+ await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT DO NOTHING",[tradeId,String(stop.orderId||''),String(tp?.orderId||''),stopPrice,takeProfitPrice]);
+ await db().query("UPDATE trades SET stop_price=$1,take_profit_price=$2,state='PROTECTED',updated_at=now() WHERE id=$3",[stopPrice,takeProfitPrice,tradeId]);
+ await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[tradeId,trade.state,'PROTECTED','PROTECTION_PLACED','DRO_TOOL','Stop-loss and take-profit orders submitted']);
+ return {mode,protected:true,stop,takeProfit:tp,verified:true};
+}
 export async function executeCloseCommand(userId:string,tradeId:string,intent:TradeIntent,quantityPct=100){
  await ensureExchangeSchema();
  const t=await db().query("SELECT * FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[tradeId,userId]);
