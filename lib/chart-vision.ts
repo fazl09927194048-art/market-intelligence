@@ -19,6 +19,46 @@ function parseJson(text:string):any{
   return null;
 }
 
+export type ImageTradePlan = {
+  available: boolean;
+  side: 'LONG'|'SHORT'|'NO TRADE';
+  entry: number | null;
+  stopLoss: number | null;
+  takeProfits: number[];
+  stopLossPct: number | null;
+  takeProfitPcts: number[];
+  riskReward: number | null;
+  basis: 'IMAGE_VISIBLE_LEVELS'|'INSUFFICIENT_IMAGE_DATA';
+  warnings: string[];
+};
+
+export function buildImageTradePlan(vision: VisionResult): ImageTradePlan {
+  const p=Number(vision.lastVisiblePrice);
+  const supports=(vision.support||[]).filter(Number.isFinite).sort((a,b)=>b-a);
+  const resistances=(vision.resistance||[]).filter(Number.isFinite).sort((a,b)=>a-b);
+  const side=vision.direction==='BULLISH'?'LONG':vision.direction==='BEARISH'?'SHORT':'NO TRADE';
+  if(!vision.available || !Number.isFinite(p) || p<=0 || side==='NO TRADE' || vision.visualQuality<50 || vision.confidence<55){
+    return {available:false,side:'NO TRADE',entry:null,stopLoss:null,takeProfits:[],stopLossPct:null,takeProfitPcts:[],riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings:['Image evidence is insufficient for a numeric trade plan. Live DRO analysis remains the decision authority.']};
+  }
+  const warnings:string[]=[]; let sl:number|null=null; let tps:number[]=[];
+  if(side==='LONG'){
+    const s=supports.find(x=>x<p*0.999);
+    const r=resistances.filter(x=>x>p*1.001).slice(0,3);
+    if(s) sl=s-(p-s)*0.08;
+    tps=r.length?r:[p*1.01,p*1.02,p*1.03];
+  } else {
+    const r=resistances.find(x=>x>p*1.001);
+    const s=resistances.length?supports.filter(x=>x<p*0.999).slice(0,3):[];
+    if(r) sl=r+(r-p)*0.08;
+    tps=s.length?s:[p*0.99,p*0.98,p*0.97];
+  }
+  if(sl===null){warnings.push('No readable structural stop level was found; image-only SL is not confirmed.'); return {available:false,side,entry:p,stopLoss:null,takeProfits:tps,stopLossPct:null,takeProfitPcts:tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100),riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings};}
+  const stopPct=side==='LONG'?(sl/p-1)*100:(1-sl/p)*100;
+  const tpp=tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100);
+  const risk=Math.abs(p-sl); const rr=tps.length?Math.abs(tps[0]-p)/risk:null;
+  return {available:true,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:stopPct,takeProfitPcts:tpp,riskReward:rr,basis:'IMAGE_VISIBLE_LEVELS',warnings};
+}
+
 export async function analyzeChartImage(imageData:string,liveContext:unknown):Promise<VisionResult>{
   const endpoint=(process.env.DRO_VISION_ENDPOINT||'https://api.openai.com/v1/chat/completions').replace(/\/$/,'');
   const key=process.env.DRO_VISION_API_KEY||process.env.OPENAI_API_KEY||'';
@@ -43,7 +83,7 @@ export async function analyzeChartImage(imageData:string,liveContext:unknown):Pr
     const resistance=Array.isArray(x.resistance)?x.resistance.filter(finite).map(Number).slice(0,20):[];
     const confidence=finite(x.confidence)?clamp(Number(x.confidence)):0;
     const visualQuality=finite(x.visualQuality)?clamp(Number(x.visualQuality)):0;
-    return {available:true,provider:endpoint,model,direction,confidence,visualQuality,trend:x.trend?String(x.trend):undefined,support,resistance,patterns,invalidation:x.invalidation?String(x.invalidation):null,evidence,timeframe:x.timeframe?String(x.timeframe):null,marketStructure:x.marketStructure?String(x.marketStructure):null,liquidity:x.liquidity?String(x.liquidity):null,volumeContext:x.volumeContext?String(x.volumeContext):null,indicatorContext:x.indicatorContext?String(x.indicatorContext):null,uncertainty,rawFields:{symbol:x.symbol,timeframe:x.timeframe,lastVisiblePrice:x.lastVisiblePrice,observations:x.observations}};
+    return {available:true,provider:endpoint,model,symbol:x.symbol?String(x.symbol):null,timeframe:x.timeframe?String(x.timeframe):null,lastVisiblePrice:finite(x.lastVisiblePrice)?Number(x.lastVisiblePrice):null,direction,confidence,visualQuality,trend:x.trend?String(x.trend):undefined,support,resistance,patterns,invalidation:x.invalidation?String(x.invalidation):null,evidence,timeframe:x.timeframe?String(x.timeframe):null,marketStructure:x.marketStructure?String(x.marketStructure):null,liquidity:x.liquidity?String(x.liquidity):null,volumeContext:x.volumeContext?String(x.volumeContext):null,indicatorContext:x.indicatorContext?String(x.indicatorContext):null,uncertainty,rawFields:{symbol:x.symbol,timeframe:x.timeframe,lastVisiblePrice:x.lastVisiblePrice,observations:x.observations}};
   }catch(e){
     return {available:false,direction:'UNKNOWN',confidence:0,visualQuality:0,uncertainty:[e instanceof Error?e.message:'Vision analysis failed'],error:'VISION_ANALYSIS_FAILED'};
   }
