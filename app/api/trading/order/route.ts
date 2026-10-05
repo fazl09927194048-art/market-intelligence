@@ -64,10 +64,15 @@ export async function POST(req:NextRequest){
    const realized=await db().query("SELECT COALESCE(SUM(CASE WHEN realized_pnl<0 THEN -realized_pnl ELSE 0 END),0)::numeric AS loss FROM trades WHERE user_id=$1 AND closed_at>=CURRENT_DATE",[userId]);
    const exposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId]);
    const symbolExposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND symbol=$2 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId,symbol]);
-   const streak=await db().query("SELECT COALESCE(SUM(CASE WHEN realized_pnl<0 THEN 1 ELSE 0 END),0)::int AS n FROM (SELECT realized_pnl FROM trades WHERE user_id=$1 AND state='CLOSED' ORDER BY closed_at DESC LIMIT 5) q",[userId]);
-   dynamicRisk=calculateDynamicRisk({risk,advanced:intelligence.marketData,technical:intelligence.technical,side:side as 'BUY'|'SELL',entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0),symbolExposure:Number(symbolExposure.rows[0]?.exposure||0),consecutiveLosses:Number(streak.rows[0]?.n||0)});
+   const streak=await db().query("SELECT realized_pnl FROM trades WHERE user_id=$1 AND state='CLOSED' ORDER BY closed_at DESC LIMIT 5",[userId]);
+   let consecutiveLosses=0; for(const row of streak.rows){const pnl=Number(row.realized_pnl); if(Number.isFinite(pnl)&&pnl<0) consecutiveLosses++; else break;}
+   dynamicRisk=calculateDynamicRisk({risk,advanced:intelligence.marketData,technical:intelligence.technical,side:side as 'BUY'|'SELL',entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0),symbolExposure:Number(symbolExposure.rows[0]?.exposure||0),consecutiveLosses});
    const requestedQty=quantity??(quoteQuantity!/Number(droGuard.entry));
-   if(!dynamicRisk.allowed) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order.',dynamicRisk},{status:403});
+   if(!dynamicRisk.allowed){
+    await audit({userId,action:'DYNAMIC_RISK_DECISION',exchange:x.record.name,symbol,source:'DRO_RISK_ENGINE',result:JSON.stringify({allowed:false,riskBudgetUsd:dynamicRisk.riskBudgetUsd,riskMultiplier:dynamicRisk.riskMultiplier,levelQuality:dynamicRisk.levelQuality,blocks:dynamicRisk.blocks}),status:'BLOCKED'});
+    return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order.',dynamicRisk},{status:403});
+   }
+   await audit({userId,action:'DYNAMIC_RISK_DECISION',exchange:x.record.name,symbol,source:'DRO_RISK_ENGINE',result:JSON.stringify({allowed:true,riskBudgetUsd:dynamicRisk.riskBudgetUsd,riskMultiplier:dynamicRisk.riskMultiplier,levelQuality:dynamicRisk.levelQuality,recommendedQuantity:dynamicRisk.recommendedQuantity}),status:'PASSED'});
    if(!Number.isFinite(requestedQty)||requestedQty<=0||requestedQty>Number(dynamicRisk.recommendedQuantity)) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order: requested size exceeds the context-aware risk budget.',requestedQuantity:requestedQty,recommendedQuantity:dynamicRisk.recommendedQuantity,dynamicRisk},{status:403});
   }
   const count=await db().query("SELECT COUNT(*)::int AS n FROM orders WHERE user_id=$1 AND created_at>=CURRENT_DATE",[userId]);
