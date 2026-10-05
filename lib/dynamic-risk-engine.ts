@@ -38,8 +38,8 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const spread=Number(i.advanced?.microstructure?.spreadPct||0);
  const imbalance=Math.abs(Number(i.advanced?.microstructure?.orderBookImbalance||0));
  const sourceDown=Object.values(i.advanced?.sourceHealth||{}).filter(v=>v==='down').length;
- const liquidityConfidence=Number((i.advanced as any)?.microstructure?.liquidityConfidence ?? 100);
- const staleAt=Number((i.advanced as any)?.fetchedAt||0); const dataAgeMs=staleAt>0?Date.now()-staleAt:0;
+ const liquidityConfidence=Number((i.advanced as any)?.microstructure?.liquidityConfidence ?? (i.advanced as any)?.liquidityBrain?.confidence ?? 100);
+ const rawFetchedAt=(i.advanced as any)?.fetchedAt; const staleAt=typeof rawFetchedAt==='number'?rawFetchedAt:Date.parse(String(rawFetchedAt||'')); const dataAgeMs=Number.isFinite(staleAt)&&staleAt>0?Math.max(0,Date.now()-staleAt):Infinity;
  const confidence=clamp(Number(i.confidence)||0,0,100);
  const maxDaily=Number(i.risk.max_daily_loss_usd||0);
  const maxPosition=Number(i.risk.max_position_usd||0);
