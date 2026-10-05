@@ -19,7 +19,7 @@ export type DynamicRiskResult={
  recommendedQuantity:number;
  recommendedNotionalUsd:number;
  stopDistancePct:number;
- expectedR:number|null;
+ expectedR:number|null; levelQuality:'GOOD'|'CAUTION'|'BLOCKED';
  riskMultiplier:number;
  reasons:string[];
  blocks:string[];
