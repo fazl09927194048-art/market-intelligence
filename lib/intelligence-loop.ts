@@ -104,7 +104,7 @@ async function runCycleInternal(safeSymbol:string,safeInterval:string,chart:Char
   const eventReaction = assessEventReaction(assetNews, risk);
   const marketRegime = detectMarketRegime(advanced, technical);
   const liquidityBrain = analyzeLiquidityBrain(advanced);
-  const analysts = await runAnalystBrain(advanced, technical, assetNews, safeInterval);
+  const analysts = await runAnalystBrain(advanced, technical, assetNews, safeInterval, chartVision);
   const currentPrice = advanced.futures.price ?? advanced.spot.price;
   const regime = marketRegime.regime;
   rememberAnalystOpinions(safeSymbol, regime, analysts, currentPrice ?? undefined, safeInterval);
@@ -188,7 +188,8 @@ export async function runIntelligenceCycle(symbol='BTCUSDT',interval='15m',chart
   const safeSymbol=String(symbol).toUpperCase().replace(/[^A-Z0-9]/g,'')||'BTCUSDT';
   const safeInterval=normalizeInterval(interval);
   const chart=normalizeChartContext(chartInput,safeSymbol,safeInterval) ?? { source:'browser', symbol:safeSymbol, interval:safeInterval, pagePrice:null, observedAt:new Date().toISOString(), extraction:'none', quality:'none', ageMs:0 };
-  const key=`${safeSymbol}:${safeInterval}`;
+  const visionKey=chartVision?JSON.stringify({direction:chartVision.direction,confidence:chartVision.confidence,visualQuality:chartVision.visualQuality,timeframe:chartVision.timeframe,marketStructure:chartVision.marketStructure,patterns:chartVision.patterns?.slice(0,8),support:chartVision.support?.slice(0,8),resistance:chartVision.resistance?.slice(0,8)}):'none';
+  const key=`${safeSymbol}:${safeInterval}:${visionKey.slice(0,1800)}`;
   const cached=cycleCache.get(key);
   if(cached&&Date.now()-cached.at<CYCLE_CACHE_TTL_MS){return {...cached.result,cycleId:`${safeSymbol}-cached-${cached.at}`,generatedAt:new Date(cached.result.generatedAt).toISOString(),chartContext:chart};}
   const pending=cycleInFlight.get(key);
