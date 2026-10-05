@@ -60,6 +60,15 @@ export function calculateDynamicRisk(i:DynamicRiskInput):DynamicRiskResult{
  const recommendedQuantity=entry>0?riskBudgetUsd/Math.abs(entry-stop):0;
  const recommendedNotionalUsd=Math.min(maxPosition,Math.min(maxOrder,recommendedQuantity*entry));
  const expectedR=finite(i.takeProfit)&&i.takeProfit!>0?Math.abs(i.takeProfit-entry)/Math.abs(entry-stop):null;
+ const atrPct=Number(i.technical?.volatility?.atrPercent);
+ const atrDistancePct=Number.isFinite(atrPct)&&atrPct>0?atrPct:null;
+ const minStopPct=atrDistancePct!==null?Math.max(0.15,atrDistancePct*0.65):0.15;
+ const maxStopPct=atrDistancePct!==null?Math.min(12,Math.max(2.5,atrDistancePct*3.5)):12;
+ let levelQuality:'GOOD'|'CAUTION'|'BLOCKED'='GOOD';
+ if(stopDistancePct<minStopPct){ levelQuality='CAUTION'; reasons.push('Stop distance is tighter than the current ATR-based safety floor.'); }
+ if(stopDistancePct>maxStopPct){ levelQuality='BLOCKED'; blocks.push('Stop distance exceeds the ATR/regime risk ceiling.'); }
+ if(i.side==='BUY'&&finite(i.technical?.structure?.support)&&stop>=Number(i.technical.structure.support)){ reasons.push('Long stop is not below the latest structural support.'); levelQuality=levelQuality==='GOOD'?'CAUTION':levelQuality; }
+ if(i.side==='SELL'&&finite(i.technical?.structure?.resistance)&&stop<=Number(i.technical.structure.resistance)){ reasons.push('Short stop is not above the latest structural resistance.'); levelQuality=levelQuality==='GOOD'?'CAUTION':levelQuality; }
  if(volatility==='EXTREME') reasons.push('Extreme volatility reduced risk budget.');
  else if(volatility==='HIGH') reasons.push('High volatility reduced position size.');
  if(imbalance>0.35) reasons.push('Order-book imbalance reduced exposure.');
