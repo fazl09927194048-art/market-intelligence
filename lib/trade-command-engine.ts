@@ -155,8 +155,8 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  const status=String(result.status||'ACKNOWLEDGED').toUpperCase();
  const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,trade.exchange_id,trade.symbol,'SELL','MARKET',qty,Number(result.avgPrice||result.price)||null,clientOrderId,remoteId,status,result]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'COMMAND_CLOSE_SUBMITTED',result]);
- const closeTradeId=await createTradeForOrder({userId,exchangeId:String(trade.exchange_id),orderId:inserted.rows[0].id,exchangeOrderId:remoteId,clientOrderId,symbol:trade.symbol,side:'SELL',executionMode:mode,quantity:qty});
- await db().query("UPDATE trades SET state='CLOSING',exit_reason=$1,updated_at=now() WHERE id=$2",[intent,tradeId]);
+ const closeTradeId=await createTradeForOrder({userId,exchangeId:String(trade.exchange_id),orderId:inserted.rows[0].id,exchangeOrderId:remoteId,clientOrderId,symbol:trade.symbol,side:'SELL',executionMode:mode,quantity:qty,parentTradeId:tradeId});
+ if(pct>=100) await db().query("UPDATE trades SET state='CLOSING',exit_reason=$1,updated_at=now() WHERE id=$2",[intent,tradeId]);
  await db().query("UPDATE trade_commands SET status='SUBMITTED',updated_at=now() WHERE trade_id=$1 AND user_id=$2 AND status='RECEIVED' AND intent=$3",[tradeId,userId,intent]);
  await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,trade.state,'CLOSING','COMMAND_EXECUTED','DRO_TOOL','Natural-language close command',result]);
  let verification:any=null;
