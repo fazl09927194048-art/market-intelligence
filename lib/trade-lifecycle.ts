@@ -76,7 +76,7 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
      const priorFilled=num(row.filled_quantity)??0;
      const deltaFilled=Math.max(0,executed-priorFilled);
      if(deltaFilled>0){
-      const parent=await db().query("SELECT id,state,filled_quantity,closed_quantity,original_quantity,stop_price,take_profit_price FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[row.parent_trade_id,userId]);
+      const parent=await db().query("SELECT id,state,side,average_fill_price,realized_pnl,filled_quantity,closed_quantity,original_quantity,stop_price,take_profit_price FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[row.parent_trade_id,userId]);
       const p=parent.rows[0];
       if(p){
        const currentFilled=Math.max(0,num(p.filled_quantity)??0);
@@ -87,7 +87,15 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
        const fullyClosed=remainingPosition<=1e-12;
        const previousParentState=String(p.state||'UNKNOWN').toUpperCase();
        const nextParentState=fullyClosed?'CLOSED':previousParentState;
-       await db().query("UPDATE trades SET closed_quantity=$1,remaining_quantity=$2,state=$3,closed_at=CASE WHEN $3='CLOSED' THEN COALESCE(closed_at,now()) ELSE closed_at END,updated_at=now() WHERE id=$4",[nextClosed,remainingPosition,nextParentState,row.parent_trade_id]);
+       const entryPrice=num(p.average_fill_price);
+       const exitPrice=num(remote?.avgPrice??remote?.averageFillPrice??remote?.price)??num(remote?.lastFillPrice??remote?.price);
+       const priorRealized=num(p.realized_pnl)??0;
+       const side=String(p.side||'BUY').toUpperCase();
+       const realizedDelta=entryPrice!==undefined&&exitPrice!==undefined
+        ? (side==='SELL'?(entryPrice-exitPrice):(exitPrice-entryPrice))*deltaFilled
+        : 0;
+       const nextRealized=priorRealized+realizedDelta;
+       await db().query("UPDATE trades SET closed_quantity=$1,remaining_quantity=$2,realized_pnl=$3,unrealized_pnl=CASE WHEN $4<=1e-12 THEN 0 ELSE unrealized_pnl END,state=$5,closed_at=CASE WHEN $5='CLOSED' THEN COALESCE(closed_at,now()) ELSE closed_at END,updated_at=now() WHERE id=$6",[nextClosed,remainingPosition,nextRealized,remainingPosition,nextParentState,row.parent_trade_id]);
        if(nextParentState!==previousParentState){
         await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[row.parent_trade_id,previousParentState,nextParentState,'POSITION_CLOSE_RECONCILED','system',fullyClosed?'Closing order fully filled on exchange':'Closing order partially filled on exchange']);
         events++;
