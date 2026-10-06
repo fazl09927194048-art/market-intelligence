@@ -4,6 +4,15 @@ import {exchangeManager} from '@/lib/exchange/manager';
 import {createTradeForOrder,reconcileOrderLifecycle} from '@/lib/trade-lifecycle';
 
 export type TradeIntent='CLOSE_POSITION'|'PARTIAL_CLOSE'|'MOVE_STOP_TO_BREAKEVEN'|'TIGHTEN_STOP'|'MONITOR_ONLY'|'CONDITIONAL_CLOSE'|'UNKNOWN';
+function openPositionQuantity(trade:any){
+ const filled=Number(trade?.filled_quantity);
+ const closed=Number(trade?.closed_quantity);
+ const original=Number(trade?.original_quantity);
+ const state=String(trade?.state||'').toUpperCase();
+ if(Number.isFinite(filled)&&filled>0) return Math.max(0,filled-(Number.isFinite(closed)?Math.max(0,closed):0));
+ if(['FILLED','PROTECTED','MONITORING','ADJUSTING','CLOSING'].includes(state)&&Number.isFinite(original)&&original>0) return original;
+ return 0;
+}
 
 export function parseTradeIntent(input:string){
  const text=String(input||'').trim().toLowerCase();
@@ -44,7 +53,7 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(String(x.record.name).toLowerCase()!=='binance') throw new Error('Protection execution currently supports Binance.');
  if(!x.record.permissions?.trading) throw new Error('Trading permission is disabled on this API key.');
  if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot protection currently requires a long BUY position.');
- const qty=Number(trade.remaining_quantity||trade.filled_quantity||trade.original_quantity||0);
+ const qty=openPositionQuantity(trade);
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No protected position quantity is available.');
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
  const payload={tradeId,symbol:trade.symbol,quantity:qty,stopPrice,takeProfitPrice};
@@ -128,7 +137,7 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  const balances=await exchangeManager.balance(x.record.name,x.credentials);
  const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===base):null;
  const available=Number(row?.free||0);
- const positionQty=Number(trade.remaining_quantity)>0?Number(trade.remaining_quantity):(Number(trade.filled_quantity)>0?Number(trade.filled_quantity):Number(trade.original_quantity)||0); const qty=Math.floor(Math.min(available,positionQty)*(pct/100)*1e8)/1e8;
+ const positionQty=openPositionQuantity(trade); const qty=Math.floor(Math.min(available,positionQty)*(pct/100)*1e8)/1e8;
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No available spot balance for this close command.');
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
  const clientOrderId='FLI_CMD_'+crypto.randomBytes(12).toString('hex');
