@@ -104,7 +104,7 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
  if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection adjustment is not enabled.');
  const p=await db().query("SELECT * FROM trade_protection WHERE trade_id=$1 LIMIT 1",[tradeId]);
  const protection=p.rows[0];
- const qty=Number(trade.remaining_quantity||trade.filled_quantity||trade.original_quantity||0);
+ const qty=openPositionQuantity(trade);
  if(qty<=0) throw new Error('No protected quantity is available.');
  if(protection?.stop_order_id){try{await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));}catch(e){throw new Error('Existing stop could not be cancelled safely; no replacement was submitted.');}}
  const cid='FLI_SL_'+crypto.randomBytes(10).toString('hex');
