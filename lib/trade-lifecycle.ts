@@ -33,7 +33,7 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
  const params:any[]=[userId,exchangeId];
  let where='o.user_id=$1 AND o.exchange_id=$2';
  if(symbol){params.push(symbol.toUpperCase());where+=' AND o.symbol=$3';}
- const rows=await db().query(`SELECT o.id,o.symbol,o.client_order_id,o.exchange_order_id,o.status,o.quantity,o.raw,t.id AS trade_id,t.state AS trade_state,t.filled_quantity,t.remaining_quantity FROM orders o LEFT JOIN trades t ON t.order_id=o.id WHERE ${where} ORDER BY o.created_at DESC LIMIT 100`,params);
+ const rows=await db().query(`SELECT o.id,o.symbol,o.client_order_id,o.exchange_order_id,o.status,o.quantity,o.raw,t.id AS trade_id,t.state AS trade_state,t.filled_quantity,t.remaining_quantity,t.parent_trade_id FROM orders o LEFT JOIN trades t ON t.order_id=o.id WHERE ${where} ORDER BY o.created_at DESC LIMIT 100`,params);
  let updated=0,events=0,open=0,terminal=0; const errors:string[]=[];
  for(const row of rows.rows){
   try{
@@ -57,7 +57,6 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
    if(row.trade_id){
     const tradeState=String(row.trade_state||'UNKNOWN').toUpperCase();
     let nextTrade=lifecycleState(nextOrder,tradeState,executed,requested);
-    if(nextOrder==='FILLED'&&tradeState==='CLOSING') nextTrade='CLOSING';
     if(!validTransition(tradeState,nextTrade)) nextTrade='RECONCILIATION_REQUIRED';
     const avg=num(remote?.avgPrice??remote?.averageFillPrice??remote?.price);
     const last=num(remote?.lastFillPrice??remote?.price);
@@ -68,13 +67,42 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
     if(nextTrade!==tradeState){
      await db().query('INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)',[row.trade_id,tradeState,nextTrade,'EXCHANGE_RECONCILIATION','system','Remote exchange state synchronized',remote]);
      events++;
-     if(nextTrade==='CLOSED'){
-      await finalizeTradeOutcome(userId,row.trade_id);
-      if(String(row.trade_state||'').toUpperCase()==='CLOSING'){
-       const originals=await db().query("UPDATE trades SET state='CLOSED',closed_at=COALESCE(closed_at,now()),updated_at=now() WHERE user_id=$1 AND exchange_id=$2 AND symbol=$3 AND state='CLOSING' AND id<>$4 RETURNING id",[userId,exchangeId,row.symbol,row.trade_id]);
-       for(const original of originals.rows){
-        await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,'CLOSING','CLOSED','POSITION_CLOSE_RECONCILED','system','Closing order filled on exchange')",[original.id]);
-        await finalizeTradeOutcome(userId,original.id);
+     if(nextTrade==='CLOSED') await finalizeTradeOutcome(userId,row.trade_id);
+    }
+
+    // Close orders are linked to their parent position. Apply only the newly filled
+    // quantity so repeated reconciliation cannot double-count partial closes.
+    if(row.parent_trade_id){
+     const priorFilled=num(row.filled_quantity)??0;
+     const deltaFilled=Math.max(0,executed-priorFilled);
+     if(deltaFilled>0){
+      const parent=await db().query("SELECT id,state,filled_quantity,closed_quantity,original_quantity,stop_price,take_profit_price FROM trades WHERE id=$1 AND user_id=$2 LIMIT 1",[row.parent_trade_id,userId]);
+      const p=parent.rows[0];
+      if(p){
+       const currentFilled=Math.max(0,num(p.filled_quantity)??0);
+       const currentClosed=Math.max(0,num(p.closed_quantity)??0);
+       const originalQty=Math.max(0,num(p.original_quantity)??currentFilled);
+       const nextClosed=Math.min(originalQty,currentClosed+deltaFilled);
+       const remainingPosition=Math.max(0,currentFilled-nextClosed);
+       const fullyClosed=remainingPosition<=1e-12;
+       const previousParentState=String(p.state||'UNKNOWN').toUpperCase();
+       const nextParentState=fullyClosed?'CLOSED':previousParentState;
+       await db().query("UPDATE trades SET closed_quantity=$1,remaining_quantity=$2,state=$3,closed_at=CASE WHEN $3='CLOSED' THEN COALESCE(closed_at,now()) ELSE closed_at END,updated_at=now() WHERE id=$4",[nextClosed,remainingPosition,nextParentState,row.parent_trade_id]);
+       if(nextParentState!==previousParentState){
+        await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[row.parent_trade_id,previousParentState,nextParentState,'POSITION_CLOSE_RECONCILED','system',fullyClosed?'Closing order fully filled on exchange':'Closing order partially filled on exchange']);
+        events++;
+        if(nextParentState==='CLOSED'){
+         const protection=await db().query("SELECT stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[row.parent_trade_id]);
+         const pr=protection.rows[0];
+         if(pr){
+          for(const siblingId of [pr.stop_order_id,pr.take_profit_order_id]){
+           if(!siblingId) continue;
+           try{await exchangeManager.cancel(x.record.name,x.credentials,row.symbol,String(siblingId));}catch{}
+          }
+          await db().query("UPDATE trade_protection SET status='CLOSED',updated_at=now() WHERE trade_id=$1",[row.parent_trade_id]);
+         }
+         await finalizeTradeOutcome(userId,row.parent_trade_id);
+        }
        }
       }
      }
@@ -107,9 +135,9 @@ export async function finalizeTradeOutcome(userId:string,tradeId:string){
  return true;
 }
 
-export async function createTradeForOrder(input:{userId:string;exchangeId:string;orderId:string;exchangeOrderId?:string;clientOrderId?:string;symbol:string;side:string;executionMode:string;cycleId?:string;strategyVersion?:string;droVersion?:string;decisionTraceId?:string;plannedEntry?:number;quantity?:number;stopPrice?:number;takeProfitPrice?:number;plannedHorizonMinutes?:number}){
+export async function createTradeForOrder(input:{userId:string;exchangeId:string;orderId:string;exchangeOrderId?:string;clientOrderId?:string;symbol:string;side:string;executionMode:string;cycleId?:string;strategyVersion?:string;droVersion?:string;decisionTraceId?:string;plannedEntry?:number;quantity?:number;stopPrice?:number;takeProfitPrice?:number;plannedHorizonMinutes?:number;parentTradeId?:string}){
  await ensureExchangeSchema();
- const r=await db().query(`INSERT INTO trades(user_id,exchange_id,symbol,side,execution_mode,order_id,exchange_order_id,client_order_id,cycle_id,strategy_version,dro_version,decision_trace_id,planned_entry,original_quantity,remaining_quantity,stop_price,take_profit_price,planned_horizon_minutes,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14,$15,$16,$17,'CREATED') RETURNING id`,[input.userId,input.exchangeId,input.symbol,input.side,input.executionMode,input.orderId,input.exchangeOrderId||null,input.clientOrderId||null,input.cycleId||null,input.strategyVersion||null,input.droVersion||null,input.decisionTraceId||null,input.plannedEntry??null,input.quantity??0,input.stopPrice??null,input.takeProfitPrice??null,input.plannedHorizonMinutes??null]);
+ const r=await db().query(`INSERT INTO trades(user_id,exchange_id,symbol,side,execution_mode,order_id,exchange_order_id,client_order_id,cycle_id,strategy_version,dro_version,decision_trace_id,parent_trade_id,planned_entry,original_quantity,remaining_quantity,stop_price,take_profit_price,planned_horizon_minutes,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15,$16,$17,$18,'CREATED') RETURNING id`,[input.userId,input.exchangeId,input.symbol,input.side,input.executionMode,input.orderId,input.exchangeOrderId||null,input.clientOrderId||null,input.cycleId||null,input.strategyVersion||null,input.droVersion||null,input.decisionTraceId||null,input.parentTradeId||null,input.plannedEntry??null,input.quantity??0,input.stopPrice??null,input.takeProfitPrice??null,input.plannedHorizonMinutes??null]);
  const tradeId=r.rows[0].id;
  await db().query('INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)',[tradeId,'','CREATED','TRADE_CREATED','system','Order linked to lifecycle']);
  return tradeId;
@@ -127,7 +155,7 @@ export async function syncActiveTradeValuations(userId:string,exchangeId:string,
    const ticker=await exchangeManager.ticker(x.record.name,x.credentials,t.symbol);
    const price=num(ticker?.lastPrice??ticker?.price);
    const entry=num(t.average_fill_price??t.submitted_price??t.planned_entry);
-   const remaining=num(t.remaining_quantity); const filled=num(t.filled_quantity); const original=num(t.original_quantity); const qty=(remaining!==undefined&&remaining>0?remaining:(filled!==undefined&&filled>0?filled:(original??0)));
+   const filled=num(t.filled_quantity)??0; const closed=num(t.closed_quantity)??0; const original=num(t.original_quantity)??0; const qty=filled>0?Math.max(0,filled-Math.max(0,closed)):(['FILLED','PROTECTED','MONITORING','ADJUSTING','CLOSING'].includes(String(t.state||'').toUpperCase())?Math.max(0,original):0);
    if(price===undefined||entry===undefined||qty<=0) continue;
    const side=String(t.side).toUpperCase();
    const pnl=(side==='SELL'?(entry-price):(price-entry))*qty;
