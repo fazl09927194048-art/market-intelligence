@@ -181,7 +181,18 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  if(process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live execution is locked by the server.');
  const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'MARKET',quantity:String(qty),newOrderRespType:'FULL',clientOrderId});
  const remoteId=String(result.orderId||'');
- const status=String(result.status||'ACKNOWLEDGED').toUpperCase();
+ let status=String(result.status||'').toUpperCase();
+ if(!status&&remoteId){
+  try{
+   const verified=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,remoteId,clientOrderId);
+   status=String(verified?.status||verified?.orderStatus||'').toUpperCase();
+  }catch{}
+ }
+ if(['REJECTED','CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH'].includes(status)){
+  await audit({userId,action:intent,exchange:x.record.name,symbol:trade.symbol,orderId:remoteId||clientOrderId,source:'DRO_COMMAND',result:'Exchange rejected close order',status});
+  throw new Error('Exchange rejected the close order ('+status+').');
+ }
+ if(!status) status='ACKNOWLEDGED';
  const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,trade.exchange_id,trade.symbol,'SELL','MARKET',qty,Number(result.avgPrice||result.price)||null,clientOrderId,remoteId,status,result]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'COMMAND_CLOSE_SUBMITTED',result]);
  const closeTradeId=await createTradeForOrder({userId,exchangeId:String(trade.exchange_id),orderId:inserted.rows[0].id,exchangeOrderId:remoteId,clientOrderId,symbol:trade.symbol,side:'SELL',executionMode:mode,quantity:qty,parentTradeId:tradeId});
