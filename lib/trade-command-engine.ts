@@ -113,12 +113,34 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
  const protection=p.rows[0];
  const qty=openPositionQuantity(trade);
  if(qty<=0) throw new Error('No protected quantity is available.');
- if(protection?.stop_order_id){try{await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));}catch(e){throw new Error('Existing stop could not be cancelled safely; no replacement was submitted.');}}
+ if(protection?.stop_order_id){
+  try{await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));}
+  catch(e){throw new Error('Existing stop could not be cancelled safely; no replacement was submitted.');}
+ }
+ await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
  const cid='FLI_SL_'+crypto.randomBytes(10).toString('hex');
  let order:any;
  try{order=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stop),stopPrice:String(stop),newOrderRespType:'FULL',clientOrderId:cid});}
- catch(e){return {mode,failed:true,previousStop:oldStop,stopPrice:stop,error:e instanceof Error?e.message:'Stop replacement failed'};}
- const stopStatus=String(order?.status||'ACKNOWLEDGED').toUpperCase(); const stopOrderId=String(order.orderId||'');
+ catch(e){
+  await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[tradeId]);
+  await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
+  return {mode,failed:true,unprotected:true,previousStop:oldStop,stopPrice:stop,error:e instanceof Error?e.message:'Stop replacement failed'};
+ }
+ let stopStatus=String(order?.status||'').toUpperCase(); const stopOrderId=String(order?.orderId||'');
+ if(!stopStatus && stopOrderId){
+  try{
+   const verified=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,stopOrderId,cid);
+   stopStatus=String(verified?.status||verified?.orderStatus||'').toUpperCase();
+   if(verified?.status) order={...order,...verified};
+  }catch{}
+ }
+ const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW'||stopStatus==='ACKNOWLEDGED';
+ if(!verifiedStop){
+  try{if(stopOrderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,stopOrderId,cid);}catch{}
+  await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[tradeId]);
+  await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
+  throw new Error('Exchange did not confirm the replacement stop as active; trade remains unprotected.');
+ }
  const stopDb=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','STOP_LOSS_LIMIT',$4,$5,$6,$7,$8,$9) RETURNING id",[userId,trade.exchange_id,trade.symbol,qty,stop,cid,stopOrderId,stopStatus,order]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[stopDb.rows[0].id,'CREATED',stopStatus,'PROTECTION_ADJUSTED',order]);
  await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,stop_price=EXCLUDED.stop_price,status='PROTECTED',verified_at=now(),updated_at=now()",[tradeId,stopOrderId,protection?.take_profit_order_id||null,stop,trade.take_profit_price??null]);
