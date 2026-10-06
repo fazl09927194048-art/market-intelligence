@@ -99,6 +99,19 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
        if(nextParentState!==previousParentState){
         await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[row.parent_trade_id,previousParentState,nextParentState,'POSITION_CLOSE_RECONCILED','system',fullyClosed?'Closing order fully filled on exchange':'Closing order partially filled on exchange']);
         events++;
+        if(!fullyClosed){
+         const protection=await db().query("SELECT stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[row.parent_trade_id]);
+         const pr=protection.rows[0];
+         if(pr){
+          for(const siblingId of [pr.stop_order_id,pr.take_profit_order_id]){
+           if(!siblingId) continue;
+           try{await exchangeManager.cancel(x.record.name,x.credentials,row.symbol,String(siblingId));}catch{}
+          }
+          await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',stop_order_id=NULL,take_profit_order_id=NULL,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id]);
+          await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[row.parent_trade_id]);
+          await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[row.parent_trade_id,userId,'Partial close filled: previous protection orders were canceled and protection must be re-established for the remaining quantity.','PARTIAL_PROTECTION:'+row.parent_trade_id+':'+String(nextClosed)]);
+         }
+        }
         if(nextParentState==='CLOSED'){
          const protection=await db().query("SELECT stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[row.parent_trade_id]);
          const pr=protection.rows[0];
