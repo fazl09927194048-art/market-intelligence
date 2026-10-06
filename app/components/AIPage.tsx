@@ -65,7 +65,7 @@ function AIPage(){
     <div><small>CONSENSUS</small><b className={directionClass(data?.consensus?.direction)}>{data?.consensus?.direction||'—'}</b><span>{data?.consensus?.long??0}L · {data?.consensus?.short??0}S · {pct(data?.consensus?.agreement)}</span></div>
     <div><small>RISK</small><b>{data?.risk?.level||'—'}</b><span>{data?.risk?.positionRisk||'—'}</span></div>
    </div>
-   <div className="levels"><span>Entry <b>{money(data?.signal?.entry)}</b></span><span>SL <b>{money(data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.signal?.takeProfits?.[0])}</b></span><span>RR <b>{data?.signal?.riskReward??'—'}</b></span><span>INTELLIGENCE <b>{data?.intelligenceScore?.score??'—'}/100</b></span><span>REGIME <b>{data?.intelligenceScore?.regime?.replaceAll('_',' ')||'—'}</b></span><span>MANIPULATION <b>{data?.intelligenceScore?.manipulationRisk??'—'}%</b></span></div>
+   <div className="levels"><span>Entry <b>{money(data?.tradePlan?.entry ?? data?.signal?.entry)}</b></span><span>SL <b>{money(data?.tradePlan?.stopLoss ?? data?.signal?.stopLoss)}</b></span><span>TP <b>{money(data?.tradePlan?.takeProfit ?? data?.signal?.takeProfits?.[0])}</b></span><span>RR <b>{data?.tradePlan?.riskReward ?? data?.signal?.riskReward ?? '—'}</b></span><span>INTELLIGENCE <b>{data?.intelligenceScore?.score??'—'}/100</b></span><span>REGIME <b>{data?.intelligenceScore?.regime?.replaceAll('_',' ')||'—'}</b></span><span>MANIPULATION <b>{data?.intelligenceScore?.manipulationRisk??'—'}%</b></span></div>
   </section>
 
   <section className="aiPanel deepSignalPanel">
