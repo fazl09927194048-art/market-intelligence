@@ -48,7 +48,7 @@ export function buildImageTradePlan(vision: VisionResult): ImageTradePlan {
     tps=r;
   } else {
     const r=resistances.find(x=>x>p*1.001);
-    const s=resistances.length?supports.filter(x=>x<p*0.999).slice(0,3):[];
+    const s=supports.filter(x=>x<p*0.999).slice(0,3);
     if(r) sl=r+(r-p)*0.08;
     tps=s;
   }
