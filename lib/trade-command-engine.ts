@@ -69,7 +69,14 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  let tp:any=null;
  try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
  catch(firstError){try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}catch{try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw firstError;}}
- const stopStatus=String(stop?.status||'ACKNOWLEDGED').toUpperCase(), tpStatus=String(tp?.status||'ACKNOWLEDGED').toUpperCase();
+ const stopStatus=String(stop?.status||'').toUpperCase(), tpStatus=String(tp?.status||'').toUpperCase();
+ const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW'||stopStatus==='ACKNOWLEDGED';
+ const verifiedTp=tpStatus==='NEW'||tpStatus==='PENDING_NEW'||tpStatus==='ACKNOWLEDGED';
+ if(!verifiedStop||!verifiedTp){
+  try{if(stop?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId));}catch{}
+  try{if(tp?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(tp.orderId));}catch{}
+  throw new Error('Exchange did not confirm both protection orders as active; position was not marked PROTECTED.');
+ }
  const sp=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','STOP_LOSS_LIMIT',$4,$5,$6,$7,$8,$9) RETURNING id",[userId,trade.exchange_id,trade.symbol,qty,stopPrice,stopClient,String(stop?.orderId||''),stopStatus,stop]);
  const tpOrder=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','TAKE_PROFIT_LIMIT',$4,$5,$6,$7,$8,$9) RETURNING id",[userId,trade.exchange_id,trade.symbol,qty,takeProfitPrice,tpClient,String(tp?.orderId||''),tpStatus,tp]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5),($6,$2,$7,$8,$9)",[sp.rows[0].id,'CREATED',stopStatus,'PROTECTION_SUBMITTED',stop,tpOrder.rows[0].id,tpStatus,'PROTECTION_SUBMITTED',tp]);
