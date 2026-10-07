@@ -16,12 +16,12 @@ export default function PhoneControlPage(){
    try{const cr=await fetch('/api/phone-control/webrtc/config',{cache:'no-store'});const cj=await cr.json();if(cj.ok)setIceServers(cj.servers||[])}catch{}
 
    pcRef.current?.close(); seenRef.current.clear();
-   const pc=new RTCPeerConnection({iceServers:iceServers.length?iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+   const pc=new RTCPeerConnection({iceServers:iceServers.length?iceServers:[{urls:'stun:stun.l.google.com:19302'}]});\n   reconnectAttempts=0;
    pcRef.current=pc; setRtc('CONNECTING');
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
-   pc.onconnectionstatechange=()=>setRtc(pc.connectionState.toUpperCase());
-   let restartTimer:any=null;
+   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectAttempts<5){reconnectAttempts++;setTimeout(()=>{if(pcRef.current===pc)startRtc()},4000)}};
+   let restartTimer:any=null,reconnectAttempts=0;
    pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
