@@ -20,7 +20,7 @@ export default function PhoneControlPage(){
 
    pcRef.current?.close(); seenRef.current.clear();
    const pc=new RTCPeerConnection({iceServers:configuredIceServers});
-   pcRef.current=pc; reconnectRef.current=0; setRtc('CONNECTING');
+   pcRef.current=pc; reconnectRef.current=0; setRtc('CONNECTING');\n   const control=pc.createDataChannel('dro-control');\n   const sendQuality=(width:number,height:number,fps:number)=>{if(control.readyState==='open')control.send(JSON.stringify({type:'quality',width,height,fps}))};\n   control.onopen=()=>sendQuality(720,1280,15);
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
    pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectRef.current<5&&!stopped){reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
