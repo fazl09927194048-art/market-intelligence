@@ -30,6 +30,8 @@ class DroWebRtc(
     private var turnServers: List<PeerConnection.IceServer> = emptyList()
     private var restartCount = 0
     private var pollingStarted = false
+    private var captureWidth = 720
+    private var captureHeight = 1280
 
     fun start() {
         PeerConnectionFactory.initialize(
@@ -83,6 +85,7 @@ class DroWebRtc(
     }
 
     private fun createPeer() {
+        if (peer != null) return
         val config = PeerConnection.RTCConfiguration(
             if (turnServers.isNotEmpty()) turnServers else listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
         )
@@ -113,10 +116,17 @@ class DroWebRtc(
                             buffer.data.get(bytes)
                             val message = JSONObject(String(bytes, Charsets.UTF_8))
                             if (message.optString("type") == "quality") {
-                                val w = message.optInt("width", 720).coerceIn(360, 1280)
-                                val h = message.optInt("height", 1280).coerceIn(360, 1280)
+                                val requestedW = message.optInt("width", captureWidth).coerceIn(360, 1280)
+                                val requestedH = message.optInt("height", captureHeight).coerceIn(360, 1280)
                                 val fps = message.optInt("fps", 15).coerceIn(5, 30)
-                                capturer?.changeCaptureFormat(if (w % 2 == 0) w else w - 1, if (h % 2 == 0) h else h - 1, fps)
+                                val portrait = captureHeight > captureWidth
+                                val longSide = minOf(maxOf(requestedW, requestedH), 1280)
+                                val shortSide = minOf(minOf(requestedW, requestedH), 720)
+                                val w = if (portrait) shortSide else longSide
+                                val h = if (portrait) longSide else shortSide
+                                captureWidth = w - (w % 2)
+                                captureHeight = h - (h % 2)
+                                capturer?.changeCaptureFormat(captureWidth, captureHeight, fps)
                             }
                         } catch (_: Exception) {}
                     }
@@ -129,13 +139,18 @@ class DroWebRtc(
 
         val metrics = DisplayMetrics()
         (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(metrics)
-        val width = (metrics.widthPixels.coerceAtMost(1280) / 2) * 2
-        val height = (metrics.heightPixels.coerceAtMost(720) / 2) * 2
+        val portrait = metrics.heightPixels > metrics.widthPixels
+        val shortSide = minOf(if (portrait) metrics.widthPixels else metrics.heightPixels, 720)
+        val longSide = minOf(if (portrait) metrics.heightPixels else metrics.widthPixels, 1280)
+        captureWidth = (if (portrait) shortSide else longSide).coerceAtLeast(360)
+        captureHeight = (if (portrait) longSide else shortSide).coerceAtLeast(360)
+        captureWidth -= captureWidth % 2
+        captureHeight -= captureHeight % 2
         videoSource = peerFactory!!.createVideoSource(false)
         capturer = ScreenCapturerAndroid(projectionData, projectionCallback)
         val helper = SurfaceTextureHelper.create("DRO-Screen", egl!!.eglBaseContext)
         capturer!!.initialize(helper, context, videoSource!!.capturerObserver)
-        capturer!!.startCapture(width, height, 15)
+        capturer!!.startCapture(captureWidth, captureHeight, 15)
         val track = peerFactory!!.createVideoTrack("dro-screen", videoSource)
         peer!!.addTrack(track, listOf("dro-screen-stream"))
 
@@ -243,7 +258,8 @@ class DroWebRtc(
         c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("Authorization", "Bearer " + deviceToken)
         c.outputStream.use { it.write(body.toString().toByteArray()) }
         val source = if (c.responseCode in 200..299) c.inputStream else c.errorStream
-        return JSONObject(source.bufferedReader().readText())
+            ?: throw IllegalStateException("HTTP ${c.responseCode}")
+        return JSONObject(source.bufferedReader().use { it.readText() })
     }
 
     private fun getJson(path: String): JSONObject {
