@@ -16,6 +16,7 @@ export async function POST(request: Request) {
     } else {
       const sid=process.env.TWILIO_ACCOUNT_SID, token=process.env.TWILIO_AUTH_TOKEN, service=process.env.TWILIO_VERIFY_SERVICE_SID;
       if(!sid || !token || !service) return NextResponse.json({ok:false,error:'SMS OTP هنوز پیکربندی نشده است'},{status:501});
+      if(!user.phone) return NextResponse.json({ok:false,error:'برای این حساب شماره تلفن ثبت نشده است'},{status:400});
       const bodyParams=new URLSearchParams({To:user.phone,Code:code});
       const auth=Buffer.from(`${sid}:${token}`).toString('base64');
       const r=await fetch(`https://verify.twilio.com/v2/Services/${service}/VerificationCheck`,{method:'POST',headers:{Authorization:`Basic ${auth}`,'Content-Type':'application/x-www-form-urlencoded'},body:bodyParams});
