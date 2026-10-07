@@ -32,17 +32,17 @@ class ScreenCaptureService : Service() {
         }
         if (running) return START_STICKY
 
+        val resultCode = i?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
         val data = i?.getParcelableExtra<Intent>(EXTRA_DATA)
-        if (data == null) {
+        if (resultCode != RESULT_OK || data == null) {
             stopSelf()
             return START_NOT_STICKY
         }
-        val token = getSharedPreferences("dro_control", MODE_PRIVATE)
-            .getString("device_token", null)
-            ?: run {
-                stopSelf()
-                return START_NOT_STICKY
-            }
+
+        val token = secureDeviceToken(this) ?: run {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_view)
@@ -54,13 +54,11 @@ class ScreenCaptureService : Service() {
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "STOP",
                 PendingIntent.getService(
-                    this,
-                    77,
+                    this, 77,
                     Intent(this, ScreenCaptureService::class.java).setAction(ACTION_STOP),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-            )
-            .build()
+            ).build()
 
         if (Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
@@ -71,8 +69,7 @@ class ScreenCaptureService : Service() {
         try {
             running = true
             webrtc = DroWebRtc(
-                this,
-                data,
+                this, data,
                 object : MediaProjection.Callback() {
                     override fun onStop() {
                         stopSelf()
@@ -82,7 +79,7 @@ class ScreenCaptureService : Service() {
                 "https://market-intelligence-840b.onrender.com"
             ) { state ->
                 if (state == "SESSION_WAIT") {
-                    // Keep the foreground service alive while DRO establishes the phone session.
+                    // The visible foreground service remains active while the web session is created.
                 }
             }
             webrtc!!.start()
@@ -96,9 +93,7 @@ class ScreenCaptureService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "DRO Phone Control",
-                NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, "DRO Phone Control", NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Visible notification while DRO is controlling or viewing the phone"
                 setShowBadge(false)
