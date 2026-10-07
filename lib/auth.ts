@@ -149,7 +149,6 @@ export async function registerUser(input: {name:string; email:string; phone:stri
   const database = db();
   if (!database) throw new Error('Database is not configured');
   await ensureAuthSchema(database);
-  await ensureAuthSchema(database);
   const name = input.name.trim().replace(/\s+/g, ' ');
   const email = normalizeEmail(input.email);
   const phone = normalizePhone(input.phone);
@@ -176,6 +175,7 @@ export async function registerUser(input: {name:string; email:string; phone:stri
 export async function loginUser(identifier: string, password: string, meta?: {ip?:string; userAgent?:string}) {
   const database = db();
   if (!database) throw new Error('Database is not configured');
+  await ensureAuthSchema(database);
   const normalized = identifier.includes('@') ? normalizeEmail(identifier) : normalizePhone(identifier);
   const { rows } = await database.query(
     `SELECT id,name,email,phone,password_hash,email_verified,phone_verified,created_at,last_login_at
@@ -197,7 +197,6 @@ export async function loginUser(identifier: string, password: string, meta?: {ip
 export async function getCurrentUser(cookieHeader: string | null) {
   const database = db();
   const token = readSessionToken(cookieHeader);
-  if (database) await ensureAuthSchema(database);
   if (database) await ensureAuthSchema(database);
   if (!database || !token) return null;
   const { rows } = await database.query(
