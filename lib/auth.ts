@@ -27,7 +27,7 @@ async function ensureAuthSchema(database: Pool) {
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name TEXT NOT NULL,
       email TEXT NOT NULL,
-      phone TEXT NOT NULL,
+      phone TEXT,
       password_hash TEXT NOT NULL,
       email_verified BOOLEAN NOT NULL DEFAULT FALSE,
       phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -36,6 +36,7 @@ async function ensureAuthSchema(database: Pool) {
       last_login_at TIMESTAMPTZ
     );
     CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uidx ON users (LOWER(email));
+    ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS users_phone_uidx ON users (phone);
     CREATE TABLE IF NOT EXISTS auth_sessions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -67,7 +68,7 @@ export type AuthUser = {
   id: string;
   name: string;
   email: string;
-  phone: string;
+  phone: string | null;
   emailVerified: boolean;
   phoneVerified: boolean;
   createdAt: string;
@@ -137,7 +138,7 @@ async function userFromRow(row: any): Promise<AuthUser> {
     id: String(row.id),
     name: String(row.name),
     email: String(row.email),
-    phone: String(row.phone),
+    phone: row.phone ? String(row.phone) : null,
     emailVerified: Boolean(row.email_verified),
     phoneVerified: Boolean(row.phone_verified),
     createdAt: new Date(row.created_at).toISOString(),
@@ -145,16 +146,16 @@ async function userFromRow(row: any): Promise<AuthUser> {
   };
 }
 
-export async function registerUser(input: {name:string; email:string; phone:string; password:string}) {
+export async function registerUser(input: {name:string; email:string; phone?:string; password:string}) {
   const database = db();
   if (!database) throw new Error('Database is not configured');
   await ensureAuthSchema(database);
   const name = input.name.trim().replace(/\s+/g, ' ');
   const email = normalizeEmail(input.email);
-  const phone = normalizePhone(input.phone);
+  const phone = normalizePhone(input.phone || '');
   if (name.length < 2 || name.length > 80) throw new Error('نام باید بین ۲ تا ۸۰ کاراکتر باشد');
   if (!validEmail(email)) throw new Error('ایمیل معتبر نیست');
-  if (!validPhone(phone)) throw new Error('شماره تلفن معتبر نیست');
+  const normalizedPhone = phone || null;
   if (input.password.length < 8 || input.password.length > 128) throw new Error('رمز عبور باید حداقل ۸ کاراکتر باشد');
 
   const passwordHash = await hashPassword(input.password);
@@ -163,7 +164,7 @@ export async function registerUser(input: {name:string; email:string; phone:stri
       `INSERT INTO users(name,email,phone,password_hash)
        VALUES($1,$2,$3,$4)
        RETURNING id,name,email,phone,email_verified,phone_verified,created_at,last_login_at`,
-      [name,email,phone,passwordHash]
+      [name,email,normalizedPhone,passwordHash]
     );
     return userFromRow(rows[0]);
   } catch (e: any) {
@@ -179,7 +180,7 @@ export async function loginUser(identifier: string, password: string, meta?: {ip
   const normalized = identifier.includes('@') ? normalizeEmail(identifier) : normalizePhone(identifier);
   const { rows } = await database.query(
     `SELECT id,name,email,phone,password_hash,email_verified,phone_verified,created_at,last_login_at
-     FROM users WHERE LOWER(email)=LOWER($1) OR phone=$1 LIMIT 1`, [normalized]
+     FROM users WHERE LOWER(email)=LOWER($1) OR (phone IS NOT NULL AND phone=$1) LIMIT 1`, [normalized]
   );
   const row = rows[0];
   if (!row || !(await verifyPassword(password, row.password_hash))) throw new Error('اطلاعات ورود نادرست است');
