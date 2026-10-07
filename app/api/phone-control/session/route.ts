@@ -1,0 +1,6 @@
+import {NextRequest,NextResponse} from 'next/server';
+import {getCurrentUser} from '@/lib/auth';
+import {createPairing,createPhoneSession,emergencyStop,getPhoneOverview} from '@/lib/dro-phone-control';
+async function user(req:NextRequest){return getCurrentUser(req.headers.get('cookie'))}
+export async function GET(req:NextRequest){const u=await user(req);if(!u)return NextResponse.json({ok:false,error:'AUTH_REQUIRED'},{status:401});return NextResponse.json({ok:true,...await getPhoneOverview(u.id)},{headers:{'Cache-Control':'no-store'}})}
+export async function POST(req:NextRequest){const u=await user(req);if(!u)return NextResponse.json({ok:false,error:'AUTH_REQUIRED'},{status:401});try{const b=await req.json().catch(()=>({})); if(b.action==='pairing-code') return NextResponse.json({ok:true,...await createPairing(u.id)}); if(b.action==='start'){return NextResponse.json({ok:true,session:await createPhoneSession(u.id,String(b.mode||'ASSIST').toUpperCase())});} if(b.action==='emergency-stop')return NextResponse.json({ok:true,...await emergencyStop(u.id)}); return NextResponse.json({ok:false,error:'UNKNOWN_ACTION'},{status:400});}catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'PHONE_CONTROL_FAILED'},{status:400});}}
