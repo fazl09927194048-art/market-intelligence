@@ -119,6 +119,25 @@ class DroWebRtc(
                     if (sdp != null && sdp.optString("type") == "answer") {
                         peer?.setRemoteDescription(SimpleSdpObserver { onState("ANSWER_SET") },
                             SessionDescription(SessionDescription.Type.ANSWER, sdp.optString("sdp")))
+                    } else if (sdp != null && sdp.optString("type") == "offer") {
+                        peer?.setRemoteDescription(SimpleSdpObserver {
+                            peer?.createAnswer(object : SdpObserver {
+                                override fun onCreateSuccess(answer: SessionDescription?) {
+                                    if (answer == null) return
+                                    peer?.setLocalDescription(object : SdpObserver {
+                                        override fun onSetSuccess() {
+                                            sendSignal(JSONObject().put("sdp", JSONObject().put("type", "answer").put("sdp", answer.description)))
+                                        }
+                                        override fun onSetFailure(error: String?) { onState("RESTART_ANSWER_FAILED") }
+                                        override fun onCreateSuccess(p0: SessionDescription?) {}
+                                        override fun onCreateFailure(p0: String?) {}
+                                    }, answer)
+                                }
+                                override fun onSetSuccess() {}
+                                override fun onCreateFailure(error: String?) { onState("RESTART_ANSWER_FAILED") }
+                                override fun onSetFailure(error: String?) {}
+                            }, MediaConstraints())
+                        }, SessionDescription(SessionDescription.Type.OFFER, sdp.optString("sdp")))
                     }
                     val c = payload.optJSONObject("candidate")
                     if (c != null) peer?.addIceCandidate(IceCandidate(
