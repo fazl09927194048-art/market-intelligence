@@ -12,6 +12,10 @@ services:
         value: 20
       - key: AUTH_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: market-intelligence-db
+          property: connectionString
       - key: RESEND_API_KEY
         sync: false
       - key: AUTH_EMAIL_FROM
