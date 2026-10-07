@@ -12,3 +12,7 @@ services:
         value: 20
       - key: AUTH_SECRET
         generateValue: true
+      - key: RESEND_API_KEY
+        sync: false
+      - key: AUTH_EMAIL_FROM
+        value: FLI Security <onboarding@resend.dev>
