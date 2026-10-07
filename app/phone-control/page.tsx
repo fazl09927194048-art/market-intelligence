@@ -31,6 +31,8 @@ export default function PhoneControlPage(){
    let stopped=false;
    let pollTimer:any=null;
    let statTimer:any=null;
+   let restartTimer:any=null;
+   (pc as any).__cleanup=()=>{stopped=true;if(pollTimer)clearTimeout(pollTimer);if(statTimer)clearInterval(statTimer);if(restartTimer)clearTimeout(restartTimer)};
    pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc||stopped)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
