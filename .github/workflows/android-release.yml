@@ -6,6 +6,10 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android-release.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-release.yml"
 
 jobs:
   build:
@@ -28,8 +32,16 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon
+      - name: Build debug and release APKs
+        run: gradle :app:assembleDebug :app:assembleRelease --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xXx-DRO-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
