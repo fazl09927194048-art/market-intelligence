@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { createHash, createHmac, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomBytes, randomInt, scrypt as scryptCb, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
 
 const scrypt = promisify(scryptCb);
@@ -222,7 +222,7 @@ function verificationCodeHash(code: string) {
   if (!secret) throw new Error('AUTH_SECRET is not configured');
   return createHmac('sha256', secret).update(code).digest('hex');
 }
-function newVerificationCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
+function newVerificationCode() { return String(randomInt(100000, 1000000)); }
 export async function createVerificationCode(userId: string, channel: 'email'|'phone') {
   const database=db(); if(!database) throw new Error('Database is not configured'); await ensureAuthSchema(database);
   const latest=await database.query(`SELECT created_at FROM auth_verification_codes WHERE user_id=$1 AND channel=$2 ORDER BY created_at DESC LIMIT 1`,[userId,channel]);
