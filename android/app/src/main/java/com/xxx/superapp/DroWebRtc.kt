@@ -30,6 +30,7 @@ class DroWebRtc(
     private var turnServers: List<PeerConnection.IceServer> = emptyList()
     private var restartCount = 0
     private var pollingStarted = false
+    private val seenSignals = mutableSetOf<String>()
     private var captureWidth = 720
     private var captureHeight = 1280
 
@@ -70,17 +71,35 @@ class DroWebRtc(
 
     private fun waitForSession() {
         io.scheduleWithFixedDelay({
-            if (sessionId != null) return@scheduleWithFixedDelay
             try {
                 val json = postJson("/api/phone-control/device/heartbeat",
                     JSONObject().put("state", "STREAMING").put("mediaProjection", true))
                 val id = json.optString("session").takeIf { it.isNotBlank() }
-                if (id != null) {
+                if (id == null) {
+                    if (sessionId != null) {
+                        closePeerForSessionRestart()
+                        sessionId = null
+                    }
+                    onState("SESSION_WAIT")
+                } else if (sessionId == null) {
+                    sessionId = id
+                    io.schedule({ createPeer() }, 0, TimeUnit.MILLISECONDS)
+                } else if (sessionId != id) {
+                    closePeerForSessionRestart()
                     sessionId = id
                     io.schedule({ createPeer() }, 0, TimeUnit.MILLISECONDS)
                 }
             } catch (_: Exception) { onState("SESSION_WAIT") }
         }, 0, 3, TimeUnit.SECONDS)
+    }
+
+    private fun closePeerForSessionRestart() {
+        try { capturer?.stopCapture() } catch (_: Exception) {}
+        capturer?.dispose(); capturer = null
+        videoSource?.dispose(); videoSource = null
+        peer?.close(); peer = null
+        seenSignals.clear()
+        onState("SESSION_RESTARTING")
     }
 
     private fun createPeer() {
