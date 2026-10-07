@@ -1,6 +1,7 @@
 package com.xxx.superapp
 
 import android.app.*
+import android.app.Activity.RESULT_OK
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
