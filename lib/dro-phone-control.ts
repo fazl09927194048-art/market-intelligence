@@ -143,7 +143,11 @@ export async function updatePhoneSessionFromDevice(token:string,state:string,met
  const s=await d.query(`SELECT id,session_id FROM dro_phone_sessions WHERE device_id=$1 AND ended_at IS NULL AND emergency_stopped=FALSE ORDER BY created_at DESC LIMIT 1`,[dev.device_id]);
  if(!s.rows[0]) return {session:null};
  const status=['CONNECTED','CONNECTING','DISCONNECTED','STOPPED'].includes(state)?state:'CONNECTED';
- await d.query(`UPDATE dro_phone_sessions SET status=$2 WHERE id=$1`,[s.rows[0].id,status]);
+ if(status==='STOPPED'){
+   await d.query(`UPDATE dro_phone_sessions SET status='STOPPED',ended_at=NOW() WHERE id=$1`,[s.rows[0].id]);
+ } else {
+   await d.query(`UPDATE dro_phone_sessions SET status=$2 WHERE id=$1`,[s.rows[0].id,status]);
+ }
  await d.query(`INSERT INTO remote_control_audit_logs(user_id,device_id,session_id,event,metadata) VALUES($1,$2,$3,'DEVICE_HEARTBEAT',$4)`,[dev.user_id,dev.device_id,s.rows[0].id,JSON.stringify(metrics)]);
  return {session:s.rows[0].session_id,status};
 }
