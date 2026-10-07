@@ -18,21 +18,25 @@ export default function PhoneControlPage(){
      if(cj.ok&&Array.isArray(cj.servers)&&cj.servers.length){configuredIceServers=cj.servers;setIceServers(cj.servers)}
    }catch{}
 
-   pcRef.current?.close(); seenRef.current.clear();
+   const oldPc:any=pcRef.current;if(oldPc?.__cleanup)oldPc.__cleanup();oldPc?.close(); seenRef.current.clear();
    const pc=new RTCPeerConnection({iceServers:configuredIceServers});
-   pcRef.current=pc; reconnectRef.current=0; setRtc('CONNECTING');\n   const control=pc.createDataChannel('dro-control');\n   const sendQuality=(width:number,height:number,fps:number)=>{if(control.readyState==='open')control.send(JSON.stringify({type:'quality',width,height,fps}))};\n   control.onopen=()=>sendQuality(720,1280,15);
+   pcRef.current=pc; setRtc('CONNECTING');
+   const control=pc.createDataChannel('dro-control');
+   const sendQuality=(width:number,height:number,fps:number)=>{if(control.readyState==='open')control.send(JSON.stringify({type:'quality',width,height,fps}))};
+   control.onopen=()=>{const portrait=window.innerHeight>window.innerWidth;sendQuality(portrait?720:1280,portrait?1280:720,15)};
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
-   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectRef.current<5&&!stopped){reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
-   let restartTimer:any=null;
    let stopped=false;
    let pollTimer:any=null;
    let statTimer:any=null;
-   pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
+   let restartTimer:any=null;
+   (pc as any).__cleanup=()=>{stopped=true;if(pollTimer)clearTimeout(pollTimer);if(statTimer)clearInterval(statTimer);if(restartTimer)clearTimeout(restartTimer)};
+   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&!stopped){if(reconnectRef.current>=5){setRtc('RECONNECT_LIMIT');return}reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
+   pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer||pc.signalingState!=='stable'||stopped)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{if(pc.signalingState!=='stable'||pcRef.current!==pc||stopped)return;pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc||stopped)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
      for(const s of (j.signals||[])){if(seenRef.current.has(s.id))continue;seenRef.current.add(s.id);const p=s.payload||{};
-       if(p.sdp?.type==='offer'){await pc.setRemoteDescription({type:'offer',sdp:p.sdp.sdp});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await signal({sdp:{type:'answer',sdp:answer.sdp}})}
+       if(p.sdp?.type==='offer'){if(pc.signalingState!=='stable')continue;await pc.setRemoteDescription({type:'offer',sdp:p.sdp.sdp});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await signal({sdp:{type:'answer',sdp:answer.sdp}})}
        if(p.candidate?.candidate){try{await pc.addIceCandidate(p.candidate)}catch{}}
      }
    }catch{} if(!stopped&&pcRef.current===pc)pollTimer=setTimeout(poll,800)};poll();
@@ -45,14 +49,28 @@ export default function PhoneControlPage(){
  }
  useEffect(()=>{if(o?.session?.session_id)startRtc();return()=>{const pc:any=pcRef.current;if(pc?.__cleanup)pc.__cleanup();pc?.close();pcRef.current=null}},[o?.session?.session_id]);
 
- async function pairing(){setBusy(true);setMsg('');try{const r=await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pairing-code'})});const j=await r.json();if(!r.ok)throw new Error(j.error||'FAILED');setPair(j.code)}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setBusy(false)}}
+ async function pairing(){
+  if(busy)return;
+  setBusy(true);setPair('');setMsg('در حال ساخت کد جفت‌سازی…');
+  const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    const r=await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json','Cache-Control':'no-store'},cache:'no-store',signal:controller.signal,body:JSON.stringify({action:'pairing-code'})});
+    const raw=await r.text();let j:any={};try{j=raw?JSON.parse(raw):{}}catch{}
+    if(!r.ok)throw new Error(j.error||j.message||('PAIRING_API_'+r.status));
+    if(!j.code||typeof j.code!=='string')throw new Error('PAIRING_CODE_NOT_RETURNED');
+    setPair(j.code.trim().toUpperCase());setMsg('کد جفت‌سازی ساخته شد؛ ۱۰ دقیقه اعتبار دارد.');
+  }catch(e){
+    setMsg(e instanceof DOMException&&e.name==='AbortError'?'زمان پاسخ سرور تمام شد؛ دوباره تلاش کن.':e instanceof Error?e.message:'خطا در ساخت کد جفت‌سازی');
+  }finally{clearTimeout(timeout);setBusy(false)}
+}
  async function start(){setBusy(true);setMsg('');try{const r=await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',mode})});const j=await r.json();if(!r.ok)throw new Error(j.error||'FAILED');setO(x=>x?{...x,session:j.session}:x);setMsg('PHONE SESSION CREATED')}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setBusy(false)}}
- async function stop(){pcRef.current?.close();pcRef.current=null;await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'emergency-stop'})});setRtc('STOPPED');autoStartRef.current=true;setMsg('EMERGENCY STOP ACTIVE');await load()}
- async function send(confirmed=false){if(!command.trim()||!o?.session?.session_id)return;const r=await fetch('/api/phone-control/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:command,sessionId:o.session.session_id,mode,confirmed})});const j=await r.json();if(j.requiresConfirmation){setConfirm(j);return}setMsg(j.text||(j.action?'ACTION QUEUED':'DRO RECEIVED'));setCommand('');setConfirm(null)}
+ async function stop(){const pc:any=pcRef.current;if(pc?.__cleanup)pc.__cleanup();pc?.close();pcRef.current=null;await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'emergency-stop'})});setRtc('STOPPED');autoStartRef.current=true;setMsg('EMERGENCY STOP ACTIVE');await load()}
+ async function sendCommand(text:string,confirmed=false){if(!text.trim()||!o?.session?.session_id)return;const r=await fetch('/api/phone-control/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,sessionId:o.session.session_id,mode,confirmed})});const j=await r.json();if(j.requiresConfirmation){setConfirm(j);return}setMsg(j.text||(j.action?'ACTION QUEUED':'DRO RECEIVED'));setCommand('');setConfirm(null)}
+ async function send(confirmed=false){return sendCommand(command,confirmed)}
 
  return <main className="phoneControl"><header><a href="/settings">← Settings</a><div><small>FLI / DRO</small><h1>DRO PHONE CONTROL</h1><p>کنترل امن گوشی اندروید با DRO</p></div><button onClick={stop}>EMERGENCY STOP</button></header>
- <div className="phoneLayout"><section className="phoneScreen"><div className="screenTop"><b>LIVE ANDROID SCREEN</b><span>{rtc}</span></div><div className="screenViewport"><video ref={videoRef} autoPlay playsInline muted className="phoneLiveVideo"/>{rtc!=='CONNECTED'&&<div className="screenPlaceholder"><strong>📱</strong><b>{loading?'Loading…':'Waiting for live screen'}</b><small>{o?.device?'Android Companion connected. Start screen sharing on the phone.':'Pair the Android Companion first.'}</small></div>}</div><div className="phoneStats"><span>FPS <b>{stats.fps}</b></span><span>LATENCY <b>{stats.latency}</b></span><span>BATTERY <b>{o?.device?.battery??'—'}</b></span><span>RESOLUTION <b>{stats.resolution}</b></span></div><div className="phoneActions"><button onClick={()=>send(true)}>‹</button><button onClick={()=>send(true)}>⌂</button><button onClick={()=>send(true)}>▣</button><button onClick={()=>{setCommand('از صفحه عکس بگیر');send()}}>SCREENSHOT</button></div></section>
+ <div className="phoneLayout"><section className="phoneScreen"><div className="screenTop"><b>LIVE ANDROID SCREEN</b><span>{rtc}</span></div><div className="screenViewport"><video ref={videoRef} autoPlay playsInline muted className="phoneLiveVideo"/>{rtc!=='CONNECTED'&&<div className="screenPlaceholder"><strong>📱</strong><b>{loading?'Loading…':'Waiting for live screen'}</b><small>{o?.device?'Android Companion connected. Start screen sharing on the phone.':'Pair the Android Companion first.'}</small></div>}</div><div className="phoneStats"><span>FPS <b>{stats.fps}</b></span><span>LATENCY <b>{stats.latency}</b></span><span>BATTERY <b>{o?.device?.battery??'—'}</b></span><span>RESOLUTION <b>{stats.resolution}</b></span></div><div className="phoneActions"><button onClick={()=>sendCommand('برگرد عقب',true)}>‹</button><button onClick={()=>sendCommand('صفحه اصلی',true)}>⌂</button><button onClick={()=>sendCommand('برنامه های اخیر',true)}>▣</button><button onClick={()=>sendCommand('از صفحه عکس بگیر')}>SCREENSHOT</button></div></section>
  <section className="droPhoneChat"><div className="chatHead"><div><b>DRO</b><small>Observe → Assist → Autonomous</small></div><select value={mode}onChange={e=>setMode(e.target.value)}><option>OBSERVE</option><option>ASSIST</option><option>AUTONOMOUS</option></select></div><div className="chatBody"><div className="chatMsg"><b>DRO</b><p>{o?.device?'دستگاه مورد اعتماد آماده است. اگر Screen Capture فعال باشد، اتصال Live به‌صورت خودکار برقرار می‌شود.':'هنوز دستگاه مورد اعتمادی جفت نشده است.'}</p></div>{msg&&<div className="chatMsg"><b>SYSTEM</b><p>{msg}</p></div>}</div><div className="chatInput"><input value={command}onChange={e=>setCommand(e.target.value)}onKeyDown={e=>{if(e.key==='Enter')send()}}placeholder="مثلاً: برگرد عقب"/><button onClick={()=>send()}>ارسال</button>{confirm&&<div className="chatMsg"><b>CONFIRMATION</b><p>{confirm.text}</p><button onClick={()=>send(true)}>تأیید اجرا</button></div>}</div></section></div>
- <section className="setupCard"><h2>One-time setup</h2>{o?.device?<><p>✓ دستگاه {o.device.name} قبلاً Trust شده. با ورود به این صفحه، session گوشی به‌صورت خودکار ساخته می‌شود. Screen Capture همچنان باید توسط خود Android تأیید شده باشد.</p><button onClick={start}disabled={busy}>RESTART PHONE SESSION</button></>:<><p>۱) اپ xXx DRO را نصب کن. ۲) کد زیر را داخل اپ وارد کن. ۳) مجوزهای Android را فقط یک‌بار تأیید کن.</p><button onClick={pairing}disabled={busy}>{pair?'PAIRING CODE: '+pair:'GENERATE PAIRING CODE'}</button></>}</section>
+ <section className="setupCard"><h2>One-time setup</h2>{o?.device?<><p>✓ دستگاه {o.device.name} قبلاً Trust شده. با ورود به این صفحه، session گوشی به‌صورت خودکار ساخته می‌شود. Screen Capture همچنان باید توسط خود Android تأیید شده باشد.</p><button onClick={start}disabled={busy}>RESTART PHONE SESSION</button></>:<><p>۱) اپ xXx DRO را نصب کن. ۲) کد زیر را داخل اپ وارد کن. ۳) مجوزهای Android را فقط یک‌بار تأیید کن.</p><button onClick={pairing}disabled={busy}>{busy?'GENERATING…':pair?'PAIRING CODE: '+pair:'GENERATE PAIRING CODE'}</button>{pair&&<div style={{marginTop:12,fontSize:28,fontWeight:800,letterSpacing:6,textAlign:'center'}}>{pair}</div>}</>}</section>
  </main>
 }

@@ -30,6 +30,9 @@ class DroWebRtc(
     private var turnServers: List<PeerConnection.IceServer> = emptyList()
     private var restartCount = 0
     private var pollingStarted = false
+    private val seenSignals = mutableSetOf<String>()
+    private var captureWidth = 720
+    private var captureHeight = 1280
 
     fun start() {
         PeerConnectionFactory.initialize(
@@ -40,11 +43,10 @@ class DroWebRtc(
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, false))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
             .createPeerConnectionFactory()
-        loadIceServers()
-        waitForSession()
+        loadIceServers { waitForSession() }
     }
 
-    private fun loadIceServers() {
+    private fun loadIceServers(onLoaded: () -> Unit) {
         io.execute {
             try {
                 val json = getJson("/api/phone-control/webrtc/config")
@@ -63,18 +65,27 @@ class DroWebRtc(
                     }
                 }
                 turnServers = list
-            } catch (_: Exception) {}
+            } catch (_: Exception) {} finally { onLoaded() }
         }
     }
 
     private fun waitForSession() {
         io.scheduleWithFixedDelay({
-            if (sessionId != null) return@scheduleWithFixedDelay
             try {
                 val json = postJson("/api/phone-control/device/heartbeat",
                     JSONObject().put("state", "STREAMING").put("mediaProjection", true))
                 val id = json.optString("session").takeIf { it.isNotBlank() }
-                if (id != null) {
+                if (id == null) {
+                    if (sessionId != null) {
+                        closePeerForSessionRestart()
+                        sessionId = null
+                    }
+                    onState("SESSION_WAIT")
+                } else if (sessionId == null) {
+                    sessionId = id
+                    io.schedule({ createPeer() }, 0, TimeUnit.MILLISECONDS)
+                } else if (sessionId != id) {
+                    closePeerForSessionRestart()
                     sessionId = id
                     io.schedule({ createPeer() }, 0, TimeUnit.MILLISECONDS)
                 }
@@ -82,7 +93,17 @@ class DroWebRtc(
         }, 0, 3, TimeUnit.SECONDS)
     }
 
+    private fun closePeerForSessionRestart() {
+        try { capturer?.stopCapture() } catch (_: Exception) {}
+        capturer?.dispose(); capturer = null
+        videoSource?.dispose(); videoSource = null
+        peer?.close(); peer = null
+        seenSignals.clear()
+        onState("SESSION_RESTARTING")
+    }
+
     private fun createPeer() {
+        if (peer != null) return
         val config = PeerConnection.RTCConfiguration(
             if (turnServers.isNotEmpty()) turnServers else listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
         )
@@ -113,10 +134,17 @@ class DroWebRtc(
                             buffer.data.get(bytes)
                             val message = JSONObject(String(bytes, Charsets.UTF_8))
                             if (message.optString("type") == "quality") {
-                                val w = message.optInt("width", 720).coerceIn(360, 1280)
-                                val h = message.optInt("height", 1280).coerceIn(360, 1280)
+                                val requestedW = message.optInt("width", captureWidth).coerceIn(360, 1280)
+                                val requestedH = message.optInt("height", captureHeight).coerceIn(360, 1280)
                                 val fps = message.optInt("fps", 15).coerceIn(5, 30)
-                                capturer?.changeCaptureFormat(if (w % 2 == 0) w else w - 1, if (h % 2 == 0) h else h - 1, fps)
+                                val portrait = captureHeight > captureWidth
+                                val longSide = minOf(maxOf(requestedW, requestedH), 1280)
+                                val shortSide = minOf(minOf(requestedW, requestedH), 720)
+                                val w = if (portrait) shortSide else longSide
+                                val h = if (portrait) longSide else shortSide
+                                captureWidth = w - (w % 2)
+                                captureHeight = h - (h % 2)
+                                capturer?.changeCaptureFormat(captureWidth, captureHeight, fps)
                             }
                         } catch (_: Exception) {}
                     }
@@ -129,13 +157,18 @@ class DroWebRtc(
 
         val metrics = DisplayMetrics()
         (context.getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(metrics)
-        val width = (metrics.widthPixels.coerceAtMost(1280) / 2) * 2
-        val height = (metrics.heightPixels.coerceAtMost(720) / 2) * 2
+        val portrait = metrics.heightPixels > metrics.widthPixels
+        val shortSide = minOf(if (portrait) metrics.widthPixels else metrics.heightPixels, 720)
+        val longSide = minOf(if (portrait) metrics.heightPixels else metrics.widthPixels, 1280)
+        captureWidth = (if (portrait) shortSide else longSide).coerceAtLeast(360)
+        captureHeight = (if (portrait) longSide else shortSide).coerceAtLeast(360)
+        captureWidth -= captureWidth % 2
+        captureHeight -= captureHeight % 2
         videoSource = peerFactory!!.createVideoSource(false)
         capturer = ScreenCapturerAndroid(projectionData, projectionCallback)
         val helper = SurfaceTextureHelper.create("DRO-Screen", egl!!.eglBaseContext)
         capturer!!.initialize(helper, context, videoSource!!.capturerObserver)
-        capturer!!.startCapture(width, height, 15)
+        capturer!!.startCapture(captureWidth, captureHeight, 15)
         val track = peerFactory!!.createVideoTrack("dro-screen", videoSource)
         peer!!.addTrack(track, listOf("dro-screen-stream"))
 
@@ -167,7 +200,7 @@ class DroWebRtc(
     }
 
     private fun restartIce() {
-        if (restartCount >= 5 || peer == null) { if (restartCount >= 5) reconnectPeer(); return }
+        if (restartCount >= 5 || peer == null || peer?.signalingState() != PeerConnection.SignalingState.STABLE) { if (restartCount >= 5) reconnectPeer(); return }
         restartCount++
         io.schedule({
             try {
@@ -203,6 +236,7 @@ class DroWebRtc(
                         peer?.setRemoteDescription(SimpleSdpObserver { onState("ANSWER_SET") },
                             SessionDescription(SessionDescription.Type.ANSWER, sdp.optString("sdp")))
                     } else if (sdp != null && sdp.optString("type") == "offer") {
+                        if (peer?.signalingState() != PeerConnection.SignalingState.STABLE) continue
                         peer?.setRemoteDescription(SimpleSdpObserver {
                             peer?.createAnswer(object : SdpObserver {
                                 override fun onCreateSuccess(answer: SessionDescription?) {
@@ -243,7 +277,8 @@ class DroWebRtc(
         c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("Authorization", "Bearer " + deviceToken)
         c.outputStream.use { it.write(body.toString().toByteArray()) }
         val source = if (c.responseCode in 200..299) c.inputStream else c.errorStream
-        return JSONObject(source.bufferedReader().readText())
+            ?: throw IllegalStateException("HTTP ${c.responseCode}")
+        return JSONObject(source.bufferedReader().use { it.readText() })
     }
 
     private fun getJson(path: String): JSONObject {
@@ -255,6 +290,16 @@ class DroWebRtc(
     }
 
     fun stop() {
+        try {
+            if (sessionId != null) {
+                Thread {
+                    try {
+                        postJson("/api/phone-control/device/heartbeat",
+                            JSONObject().put("state", "STOPPED").put("mediaProjection", false))
+                    } catch (_: Exception) {}
+                }.start()
+            }
+        } catch (_: Exception) {}
         try { capturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose(); capturer = null
         videoSource?.dispose(); videoSource = null

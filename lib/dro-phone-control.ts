@@ -108,13 +108,14 @@ export async function getPhoneOverview(userId:string){
  await schema(d);
  const q=await d.query(`SELECT id,device_id,name,platform,trusted,revoked,last_seen_at,created_at FROM devices WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1`,[userId]);
  const device=q.rows[0]||null;
- const s=device?await d.query(`SELECT id,mode,status,emergency_stopped,created_at FROM dro_phone_sessions WHERE user_id=$1 AND device_id=$2 AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1`,[userId,device.id]):{rows:[]};
+ const s=device?await d.query(`SELECT id,session_id,mode,status,emergency_stopped,created_at FROM dro_phone_sessions WHERE user_id=$1 AND device_id=$2 AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1`,[userId,device.id]):{rows:[]};
  return {configured:Boolean(device),device:device?{...device,id:String(device.id),lastSeenAt:device.last_seen_at?.toISOString()||null}:null,session:s.rows[0]||null};
 }
 export async function createPhoneSession(userId:string,mode:string='ASSIST'){
  const d=db(); if(!d) throw new Error('Database is not configured'); await schema(d);
  const dev=(await d.query(`SELECT id FROM devices WHERE user_id=$1 AND trusted=TRUE AND revoked=FALSE ORDER BY created_at DESC LIMIT 1`,[userId])).rows[0];
  if(!dev) throw new Error('NO_TRUSTED_DEVICE');
+ await d.query(`UPDATE dro_phone_sessions SET status='STOPPED',ended_at=NOW() WHERE user_id=$1 AND device_id=$2 AND ended_at IS NULL AND emergency_stopped=FALSE`,[userId,dev.id]);
  const sid=randomBytes(18).toString('base64url');
  const r=await d.query(`INSERT INTO dro_phone_sessions(user_id,device_id,session_id,mode,status) VALUES($1,$2,$3,$4,'CONNECTING') RETURNING id,session_id,mode,status`,[userId,dev.id,sid,mode]);
  await d.query(`INSERT INTO remote_control_audit_logs(user_id,device_id,session_id,event,metadata) VALUES($1,$2,$3,'PHONE_SESSION_CREATED',$4)`,[userId,dev.id,r.rows[0].id,JSON.stringify({mode})]);
@@ -122,14 +123,16 @@ export async function createPhoneSession(userId:string,mode:string='ASSIST'){
 }
 export async function createAction(userId:string,sessionId:string,actionType:string,payload:any,idempotencyKey?:string){
  const d=db(); if(!d) throw new Error('Database is not configured'); await schema(d);
- const q=await d.query(`INSERT INTO remote_actions(user_id,phone_session_id,action_type,payload,idempotency_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,idempotency_key) WHERE idempotency_key IS NOT NULL DO UPDATE SET updated_at=NOW() RETURNING id,action_type,state,created_at`,[userId,sessionId,actionType,JSON.stringify(payload||{}),idempotencyKey||null]);
+ const session=await d.query(`SELECT id FROM dro_phone_sessions WHERE session_id=$1 AND user_id=$2 AND ended_at IS NULL AND emergency_stopped=FALSE LIMIT 1`,[sessionId,userId]);
+ if(!session.rows[0]) throw new Error('PHONE_SESSION_NOT_ACTIVE');
+ const q=await d.query(`INSERT INTO remote_actions(user_id,phone_session_id,action_type,payload,idempotency_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,idempotency_key) WHERE idempotency_key IS NOT NULL DO UPDATE SET updated_at=NOW() RETURNING id,action_type,state,created_at`,[userId,session.rows[0].id,actionType,JSON.stringify(payload||{}),idempotencyKey||null]);
  await d.query(`INSERT INTO remote_control_audit_logs(user_id,session_id,event,metadata) VALUES($1,(SELECT id FROM dro_phone_sessions WHERE session_id=$2),'REMOTE_ACTION_REQUESTED',$3)`,[userId,sessionId,JSON.stringify({actionType})]);
  return q.rows[0];
 }
 export async function emergencyStop(userId:string){
  const d=db(); if(!d) throw new Error('Database is not configured'); await schema(d);
  await d.query(`UPDATE dro_phone_sessions SET emergency_stopped=TRUE,status='STOPPED',ended_at=NOW() WHERE user_id=$1 AND ended_at IS NULL`,[userId]);
- await d.query(`UPDATE device_sessions SET revoked_at=NOW() WHERE user_id=$1 AND revoked_at IS NULL`,[userId]);
+ await d.query(`UPDATE remote_actions SET state='CANCELLED',updated_at=NOW() WHERE user_id=$1 AND state IN ('REQUESTED','EXECUTING','VERIFYING') AND phone_session_id IN (SELECT id FROM dro_phone_sessions WHERE user_id=$1 AND emergency_stopped=TRUE)`,[userId]);
  await d.query(`INSERT INTO remote_control_audit_logs(user_id,event,metadata) VALUES($1,'EMERGENCY_STOP',$2)`,[userId,JSON.stringify({source:'web'})]);
  return {stopped:true};
 }
@@ -140,7 +143,11 @@ export async function updatePhoneSessionFromDevice(token:string,state:string,met
  const s=await d.query(`SELECT id,session_id FROM dro_phone_sessions WHERE device_id=$1 AND ended_at IS NULL AND emergency_stopped=FALSE ORDER BY created_at DESC LIMIT 1`,[dev.device_id]);
  if(!s.rows[0]) return {session:null};
  const status=['CONNECTED','CONNECTING','DISCONNECTED','STOPPED'].includes(state)?state:'CONNECTED';
- await d.query(`UPDATE dro_phone_sessions SET status=$2 WHERE id=$1`,[s.rows[0].id,status]);
+ if(status==='STOPPED'){
+   await d.query(`UPDATE dro_phone_sessions SET status='STOPPED',ended_at=NOW() WHERE id=$1`,[s.rows[0].id]);
+ } else {
+   await d.query(`UPDATE dro_phone_sessions SET status=$2 WHERE id=$1`,[s.rows[0].id,status]);
+ }
  await d.query(`INSERT INTO remote_control_audit_logs(user_id,device_id,session_id,event,metadata) VALUES($1,$2,$3,'DEVICE_HEARTBEAT',$4)`,[dev.user_id,dev.device_id,s.rows[0].id,JSON.stringify(metrics)]);
  return {session:s.rows[0].session_id,status};
 }

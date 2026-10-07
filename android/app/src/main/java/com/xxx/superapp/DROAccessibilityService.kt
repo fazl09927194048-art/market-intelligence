@@ -3,6 +3,7 @@ package com.xxx.superapp
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
@@ -103,7 +104,8 @@ class DROAccessibilityService : AccessibilityService() {
     }
 
     private fun walk(n: AccessibilityNodeInfo, a: JSONArray) {
-        val b = n.boundsInScreen
+        val b = Rect()
+        n.getBoundsInScreen(b)
         a.put(JSONObject()
             .put("text", n.text?.toString())
             .put("contentDescription", n.contentDescription?.toString())
@@ -113,7 +115,12 @@ class DROAccessibilityService : AccessibilityService() {
             .put("enabled", n.isEnabled)
             .put("selected", n.isSelected)
             .put("editable", n.isEditable)
-            .put("bounds", JSONArray().put(b.left).put(b.top).put(b.right).put(b.bottom)))
+            .put("bounds", JSONArray().apply {
+                put(b.left)
+                put(b.top)
+                put(b.right)
+                put(b.bottom)
+            }))
         for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, a) }
     }
 
