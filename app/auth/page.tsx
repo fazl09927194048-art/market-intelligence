@@ -21,8 +21,15 @@ export default function AuthPage(){
     const payload=mode==='register'?{name,email,password}:{identifier,password};
     const r=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     const j=await r.json();if(!r.ok)throw new Error(j.error||'خطا');
-    if(mode==='register'){setIdentifier(email);setPassword('');setNotice('حساب ساخته شد؛ در حال ارسال کد تأیید ایمیل…');await sendCode('email',email);setMode('login');}
-    else setUser(j.user);
+    if(mode==='register'){
+      setIdentifier(email.trim());
+      setVerifyChannel('email');
+      setVerifyTarget(email.trim());
+      setPassword('');
+      setMode('login');
+      setNotice('حساب ساخته شد؛ در حال ارسال کد تأیید ایمیل…');
+      try { await sendCode('email',email.trim()); } catch { /* error is shown by sendCode */ }
+    } else setUser(j.user);
   }catch(e){setError(e instanceof Error?e.message:'خطا')}finally{setBusy(false)}};
   const logout=async()=>{await fetch('/api/auth/logout',{method:'POST'});setUser(null)};
   return <main style={{minHeight:'100vh',display:'grid',placeItems:'center',padding:24,background:'#07090d',color:'#f4f7fb',fontFamily:'system-ui'}}>
