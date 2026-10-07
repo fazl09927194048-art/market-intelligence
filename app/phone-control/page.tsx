@@ -24,7 +24,10 @@ export default function PhoneControlPage(){
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
    pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectRef.current<5&&!stopped){reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
-   let restartTimer:any=null;\n   let stopped=false;\n   let pollTimer:any=null;\n   let statTimer:any=null;
+   let restartTimer:any=null;
+   let stopped=false;
+   let pollTimer:any=null;
+   let statTimer:any=null;
    pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc||stopped)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
