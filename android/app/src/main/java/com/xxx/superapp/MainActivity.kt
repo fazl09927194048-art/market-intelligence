@@ -1,11 +1,125 @@
-package com.xxx.superapp\n\nimport android.content.Context\nimport android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle\nimport android.provider.Settings
-import android.media.projection.MediaProjectionManager\nimport android.widget.*\nimport androidx.appcompat.app.AppCompatActivity\nimport androidx.core.content.ContextCompat\nimport org.json.JSONObject\nimport java.net.HttpURLConnection\nimport java.net.URL\nimport java.util.UUID\nimport java.util.concurrent.Executors\nimport android.util.Base64\nimport java.security.KeyPairGenerator\n\nclass MainActivity : AppCompatActivity() {\n    private lateinit var status: TextView\n    private val prefs by lazy { getSharedPreferences("dro_control", Context.MODE_PRIVATE) }\n    private val serverUrl = "https://market-intelligence-840b.onrender.com"\n    private val executor = Executors.newSingleThreadExecutor()\n\n    override fun onCreate(savedInstanceState: Bundle?) {\n        super.onCreate(savedInstanceState)\n        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40,60,40,40); setBackgroundColor(0xFF050505.toInt()) }\n        val title = TextView(this).apply { text = "xXx  •  DRO PHONE CONTROL"; textSize = 24f; setTextColor(0xFFFFFFFF.toInt()) }\n        status = TextView(this).apply { textSize = 14f; setPadding(0,20,0,24); setTextColor(0xFFBDBDBD.toInt()) }\n        val code = EditText(this).apply { hint = "PAIRING CODE"; setSingleLine(true); setTextColor(0xFFFFFFFF.toInt()); setHintTextColor(0xFF777777.toInt()) }\n        val pair = Button(this).apply { text = "Pair this Android once" }\n        val setup = Button(this).apply { text = "Run one-time permission setup" }\n        val overlay = Button(this).apply { text = "Start DRO floating service" }
-        val screen = Button(this).apply { text = "Share live screen with DRO" }\n        pair.setOnClickListener { pairDevice(code.text.toString()) }\n        setup.setOnClickListener { openMissingPermission() }\n        overlay.setOnClickListener { enableOverlay() }
-        screen.setOnClickListener { requestScreenCapture() }\n        root.addView(title); root.addView(status); root.addView(code); root.addView(pair); root.addView(setup); root.addView(overlay); root.addView(screen)\n        setContentView(root); updateStatus()\n    }\n\n    override fun onResume() { super.onResume(); if (::status.isInitialized) updateStatus() }\n\n    private fun updateStatus() {\n        val trusted = prefs.getString("device_token", null) != null\n        val overlay = Settings.canDrawOverlays(this)\n        status.text = "Pairing: " + if (trusted) "TRUSTED ✓" else "NOT PAIRED" + "\nOverlay: " + if (overlay) "READY ✓" else "NEEDED" + "\nServer: " + serverUrl\n    }\n\n    private fun deviceId(): String {\n        prefs.getString("device_id", null)?.let { return it }\n        val id = "android-" + UUID.randomUUID().toString()\n        prefs.edit().putString("device_id", id).apply()\n        return id\n    }\n\n    private fun publicKey(): String {\n        prefs.getString("public_key", null)?.let { return it }\n        val gen = KeyPairGenerator.getInstance("EC")\n        gen.initialize(256)\n        val pair = gen.generateKeyPair()\n        val pub = Base64.encodeToString(pair.public.encoded, Base64.NO_WRAP)\n        prefs.edit().putString("public_key", pub).apply()\n        return pub\n    }\n\n    private fun pairDevice(code: String) {\n        val clean = code.trim().uppercase()\n        if (clean.length < 6) { Toast.makeText(this, "Pairing code را وارد کن", Toast.LENGTH_SHORT).show(); return }\n        status.text = "Pairing…"\n        executor.execute {\n            try {\n                val body = JSONObject()\n                body.put("code", clean); body.put("deviceId", deviceId()); body.put("name", "xXx DRO Android"); body.put("platform", "android"); body.put("publicKey", publicKey())\n                val conn = URL(serverUrl + "/api/phone-control/pair").openConnection() as HttpURLConnection\n                conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 10000; conn.readTimeout = 10000\n                conn.setRequestProperty("Content-Type", "application/json")\n                conn.outputStream.use { it.write(body.toString().toByteArray()) }\n                val source = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream\n                val json = JSONObject(source.bufferedReader().readText())\n                if (!json.optBoolean("ok")) throw IllegalStateException(json.optString("error", "PAIRING_FAILED"))\n                prefs.edit().putString("device_token", json.getString("token")).apply()\n                runOnUiThread { Toast.makeText(this, "Android trusted شد ✓", Toast.LENGTH_LONG).show(); updateStatus() }\n            } catch (e: Exception) { runOnUiThread { status.text = "Pairing failed: " + e.message } }\n        }\n    }\n\n    private fun openMissingPermission() {\n        if (!Settings.canDrawOverlays(this)) { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName))); return }\n        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) { requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 700); return }\n        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))\n        Toast.makeText(this, "DRO Accessibility را فعال کن و برگرد.", Toast.LENGTH_LONG).show()\n    }\n\n    private fun requestScreenCapture() {
+package com.xxx.superapp
+
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.provider.Settings
+import android.media.projection.MediaProjectionManager
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.UUID
+import java.util.concurrent.Executors
+import android.util.Base64
+import java.security.KeyPairGenerator
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var status: TextView
+    private val prefs by lazy { getSharedPreferences("dro_control", Context.MODE_PRIVATE) }
+    private val serverUrl = "https://market-intelligence-840b.onrender.com"
+    private val executor = Executors.newSingleThreadExecutor()
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 60, 40, 40)
+            setBackgroundColor(0xFF050505.toInt())
+        }
+        val title = TextView(this).apply { text = "xXx • DRO PHONE CONTROL"; textSize = 24f; setTextColor(0xFFFFFFFF.toInt()) }
+        status = TextView(this).apply { textSize = 14f; setPadding(0, 20, 0, 24); setTextColor(0xFFBDBDBD.toInt()) }
+        val code = EditText(this).apply { hint = "PAIRING CODE"; setSingleLine(true); setTextColor(0xFFFFFFFF.toInt()); setHintTextColor(0xFF777777.toInt()) }
+        val pair = Button(this).apply { text = "Pair this Android once" }
+        val setup = Button(this).apply { text = "Run one-time permission setup" }
+        val overlay = Button(this).apply { text = "Start DRO floating service" }
+        val screen = Button(this).apply { text = "Share live screen with DRO" }
+        pair.setOnClickListener { pairDevice(code.text.toString()) }
+        setup.setOnClickListener { openMissingPermission() }
+        overlay.setOnClickListener { enableOverlay() }
+        screen.setOnClickListener { requestScreenCapture() }
+        root.addView(title); root.addView(status); root.addView(code); root.addView(pair); root.addView(setup); root.addView(overlay); root.addView(screen)
+        setContentView(root)
+        updateStatus()
+    }
+
+    override fun onResume() { super.onResume(); if (::status.isInitialized) updateStatus() }
+
+    private fun updateStatus() {
+        val trusted = prefs.getString("device_token", null) != null
+        val overlay = Settings.canDrawOverlays(this)
+        status.text = "Pairing: " + if (trusted) "TRUSTED ✓" else "NOT PAIRED" +
+            "\nOverlay: " + if (overlay) "READY ✓" else "NEEDED" +
+            "\nServer: " + serverUrl
+    }
+
+    private fun deviceId(): String {
+        prefs.getString("device_id", null)?.let { return it }
+        val id = "android-" + UUID.randomUUID().toString()
+        prefs.edit().putString("device_id", id).apply()
+        return id
+    }
+
+    private fun publicKey(): String {
+        prefs.getString("public_key", null)?.let { return it }
+        val gen = KeyPairGenerator.getInstance("EC")
+        gen.initialize(256)
+        val pair = gen.generateKeyPair()
+        val pub = Base64.encodeToString(pair.public.encoded, Base64.NO_WRAP)
+        prefs.edit().putString("public_key", pub).apply()
+        return pub
+    }
+
+    private fun pairDevice(code: String) {
+        val clean = code.trim().uppercase()
+        if (clean.length < 6) { Toast.makeText(this, "Pairing code را وارد کن", Toast.LENGTH_SHORT).show(); return }
+        status.text = "Pairing…"
+        executor.execute {
+            try {
+                val body = JSONObject().apply {
+                    put("code", clean)
+                    put("deviceId", deviceId())
+                    put("name", "xXx DRO Android")
+                    put("platform", "android")
+                    put("publicKey", publicKey())
+                }
+                val conn = URL(serverUrl + "/api/phone-control/pair").openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 10000; conn.readTimeout = 10000
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                val source = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+                val json = JSONObject(source.bufferedReader().readText())
+                if (!json.optBoolean("ok")) throw IllegalStateException(json.optString("error", "PAIRING_FAILED"))
+                prefs.edit().putString("device_token", json.getString("token")).apply()
+                runOnUiThread { Toast.makeText(this, "Android trusted شد ✓", Toast.LENGTH_LONG).show(); updateStatus() }
+            } catch (e: Exception) {
+                runOnUiThread { status.text = "Pairing failed: " + (e.message ?: "UNKNOWN") }
+            }
+        }
+    }
+
+    private fun openMissingPermission() {
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)))
+            return
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
+            requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 700)
+            return
+        }
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        Toast.makeText(this, "DRO Accessibility را فعال کن و برگرد.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun requestScreenCapture() {
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(manager.createScreenCaptureIntent(), 801)
     }
 
+    @Deprecated("Use Activity Result APIs for new code")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 801 && resultCode == RESULT_OK && data != null) {
@@ -18,4 +132,16 @@ import android.media.projection.MediaProjectionManager\nimport android.widget.*\
         }
     }
 
-    private fun enableOverlay() {\n        if (!Settings.canDrawOverlays(this)) startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)))\n        else ContextCompat.startForegroundService(this, Intent(this, DROOverlayService::class.java))\n    }\n\n    override fun onDestroy() { executor.shutdownNow(); super.onDestroy() }\n}
+    private fun enableOverlay() {
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + packageName)))
+        } else {
+            ContextCompat.startForegroundService(this, Intent(this, DROOverlayService::class.java))
+        }
+    }
+
+    override fun onDestroy() {
+        executor.shutdownNow()
+        super.onDestroy()
+    }
+}
