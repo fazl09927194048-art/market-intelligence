@@ -107,7 +107,17 @@ class DroWebRtc(
         pollSignals()
     }
 
-    private fun restartIce() {\n        if (restartCount >= 5 || peer == null) return\n        restartCount++\n        io.schedule({\n            try {\n                peer?.createOffer(object : SdpObserver {\n                    override fun onCreateSuccess(desc: SessionDescription?) {\n                        if (desc == null) return\n                        peer?.setLocalDescription(object : SdpObserver {\n                            override fun onSetSuccess() { sendSignal(JSONObject().put("sdp", JSONObject().put("type", "offer").put("sdp", desc.description).put("iceRestart", true))) }\n                            override fun onSetFailure(error: String?) { onState("ICE_RESTART_SDP_FAILED") }\n                            override fun onCreateSuccess(p0: SessionDescription?) {}\n                            override fun onCreateFailure(p0: String?) {}\n                        }, desc)\n                    }\n                    override fun onSetSuccess() {}\n                    override fun onCreateFailure(error: String?) { onState("ICE_RESTART_FAILED") }\n                    override fun onSetFailure(error: String?) {}\n                }, MediaConstraints())\n            } catch (_: Exception) {}\n        }, 2, TimeUnit.SECONDS)\n    }\n\n    private fun pollSignals() {
+    private fun reconnectPeer() {
+        try { capturer?.stopCapture() } catch (_: Exception) {}
+        capturer?.dispose(); capturer = null
+        videoSource?.dispose(); videoSource = null
+        peer?.close(); peer = null
+        restartCount = 0
+        onState("RECONNECTING")
+        io.schedule({ createPeer() }, 2, TimeUnit.SECONDS)
+    }
+
+    private fun restartIce() {\n        if (restartCount >= 5 || peer == null) { if (restartCount >= 5) reconnectPeer(); return }\n        restartCount++\n        io.schedule({\n            try {\n                peer?.createOffer(object : SdpObserver {\n                    override fun onCreateSuccess(desc: SessionDescription?) {\n                        if (desc == null) return\n                        peer?.setLocalDescription(object : SdpObserver {\n                            override fun onSetSuccess() { sendSignal(JSONObject().put("sdp", JSONObject().put("type", "offer").put("sdp", desc.description).put("iceRestart", true))) }\n                            override fun onSetFailure(error: String?) { onState("ICE_RESTART_SDP_FAILED") }\n                            override fun onCreateSuccess(p0: SessionDescription?) {}\n                            override fun onCreateFailure(p0: String?) {}\n                        }, desc)\n                    }\n                    override fun onSetSuccess() {}\n                    override fun onCreateFailure(error: String?) { onState("ICE_RESTART_FAILED") }\n                    override fun onSetFailure(error: String?) {}\n                }, MediaConstraints())\n            } catch (_: Exception) {}\n        }, 2, TimeUnit.SECONDS)\n    }\n\n    private fun pollSignals() {
         io.scheduleWithFixedDelay({
             val id = sessionId ?: return@scheduleWithFixedDelay
             try {
