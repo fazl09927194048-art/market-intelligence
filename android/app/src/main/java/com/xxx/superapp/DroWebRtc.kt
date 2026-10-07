@@ -42,11 +42,10 @@ class DroWebRtc(
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl!!.eglBaseContext, true, false))
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(egl!!.eglBaseContext))
             .createPeerConnectionFactory()
-        loadIceServers()
-        waitForSession()
+        loadIceServers { waitForSession() }
     }
 
-    private fun loadIceServers() {
+    private fun loadIceServers(onLoaded: () -> Unit) {
         io.execute {
             try {
                 val json = getJson("/api/phone-control/webrtc/config")
@@ -65,7 +64,7 @@ class DroWebRtc(
                     }
                 }
                 turnServers = list
-            } catch (_: Exception) {}
+            } catch (_: Exception) {} finally { onLoaded() }
         }
     }
 
