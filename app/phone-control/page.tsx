@@ -18,7 +18,7 @@ export default function PhoneControlPage(){
      if(cj.ok&&Array.isArray(cj.servers)&&cj.servers.length){configuredIceServers=cj.servers;setIceServers(cj.servers)}
    }catch{}
 
-   pcRef.current?.close(); seenRef.current.clear();
+   const oldPc:any=pcRef.current;if(oldPc?.__cleanup)oldPc.__cleanup();oldPc?.close(); seenRef.current.clear();
    const pc=new RTCPeerConnection({iceServers:configuredIceServers});
    pcRef.current=pc; setRtc('CONNECTING');
    const control=pc.createDataChannel('dro-control');
@@ -32,11 +32,11 @@ export default function PhoneControlPage(){
    let restartTimer:any=null;
    (pc as any).__cleanup=()=>{stopped=true;if(pollTimer)clearTimeout(pollTimer);if(statTimer)clearInterval(statTimer);if(restartTimer)clearTimeout(restartTimer)};
    pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&!stopped){if(reconnectRef.current>=5){setRtc('RECONNECT_LIMIT');return}reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
-   pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
+   pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer||pc.signalingState!=='stable'||stopped)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{if(pc.signalingState!=='stable'||pcRef.current!==pc||stopped)return;pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc||stopped)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
      for(const s of (j.signals||[])){if(seenRef.current.has(s.id))continue;seenRef.current.add(s.id);const p=s.payload||{};
-       if(p.sdp?.type==='offer'){await pc.setRemoteDescription({type:'offer',sdp:p.sdp.sdp});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await signal({sdp:{type:'answer',sdp:answer.sdp}})}
+       if(p.sdp?.type==='offer'){if(pc.signalingState!=='stable')continue;await pc.setRemoteDescription({type:'offer',sdp:p.sdp.sdp});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await signal({sdp:{type:'answer',sdp:answer.sdp}})}
        if(p.candidate?.candidate){try{await pc.addIceCandidate(p.candidate)}catch{}}
      }
    }catch{} if(!stopped&&pcRef.current===pc)pollTimer=setTimeout(poll,800)};poll();
