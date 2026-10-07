@@ -10,3 +10,5 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: AUTH_SECRET
+        generateValue: true
