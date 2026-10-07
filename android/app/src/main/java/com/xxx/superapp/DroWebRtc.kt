@@ -271,14 +271,13 @@ class DroWebRtc(
 
     fun stop() {
         try {
-            val id = sessionId
-            if (id != null) {
-                io.execute {
+            if (sessionId != null) {
+                Thread {
                     try {
                         postJson("/api/phone-control/device/heartbeat",
                             JSONObject().put("state", "STOPPED").put("mediaProjection", false))
                     } catch (_: Exception) {}
-                }
+                }.start()
             }
         } catch (_: Exception) {}
         try { capturer?.stopCapture() } catch (_: Exception) {}
