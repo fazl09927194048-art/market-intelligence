@@ -200,7 +200,7 @@ class DroWebRtc(
     }
 
     private fun restartIce() {
-        if (restartCount >= 5 || peer == null) { if (restartCount >= 5) reconnectPeer(); return }
+        if (restartCount >= 5 || peer == null || peer?.signalingState() != PeerConnection.SignalingState.STABLE) { if (restartCount >= 5) reconnectPeer(); return }
         restartCount++
         io.schedule({
             try {
@@ -236,6 +236,7 @@ class DroWebRtc(
                         peer?.setRemoteDescription(SimpleSdpObserver { onState("ANSWER_SET") },
                             SessionDescription(SessionDescription.Type.ANSWER, sdp.optString("sdp")))
                     } else if (sdp != null && sdp.optString("type") == "offer") {
+                        if (peer?.signalingState() != PeerConnection.SignalingState.STABLE) continue
                         peer?.setRemoteDescription(SimpleSdpObserver {
                             peer?.createAnswer(object : SdpObserver {
                                 override fun onCreateSuccess(answer: SessionDescription?) {
