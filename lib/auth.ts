@@ -216,3 +216,38 @@ export async function logoutUser(cookieHeader: string | null) {
 }
 
 export function authCookieName() { return SESSION_COOKIE; }
+
+function verificationCodeHash(code: string) {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is not configured');
+  return createHmac('sha256', secret).update(code).digest('hex');
+}
+function newVerificationCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
+export async function createVerificationCode(userId: string, channel: 'email'|'phone') {
+  const database=db(); if(!database) throw new Error('Database is not configured'); await ensureAuthSchema(database);
+  const latest=await database.query(`SELECT created_at FROM auth_verification_codes WHERE user_id=$1 AND channel=$2 ORDER BY created_at DESC LIMIT 1`,[userId,channel]);
+  if(latest.rows[0] && Date.now()-new Date(latest.rows[0].created_at).getTime()<60000) throw new Error('لطفاً برای ارسال کد جدید ۶۰ ثانیه صبر کنید');
+  const code=newVerificationCode(), expires=new Date(Date.now()+10*60*1000);
+  await database.query(`UPDATE auth_verification_codes SET consumed_at=NOW() WHERE user_id=$1 AND channel=$2 AND consumed_at IS NULL`,[userId,channel]);
+  await database.query(`INSERT INTO auth_verification_codes(user_id,channel,code_hash,expires_at) VALUES($1,$2,$3,$4)`,[userId,channel,verificationCodeHash(code),expires]);
+  return {code,expires};
+}
+export async function verifyVerificationCode(userId:string, channel:'email'|'phone', code:string) {
+  const database=db(); if(!database) throw new Error('Database is not configured'); await ensureAuthSchema(database);
+  if(!/^\d{6}$/.test(code)) throw new Error('کد تأیید باید ۶ رقمی باشد');
+  const {rows}=await database.query(`SELECT id,code_hash,expires_at,attempts FROM auth_verification_codes WHERE user_id=$1 AND channel=$2 AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1`,[userId,channel]);
+  const row=rows[0]; if(!row) throw new Error('کد تأیید یافت نشد');
+  if(new Date(row.expires_at).getTime()<=Date.now()) throw new Error('کد تأیید منقضی شده است');
+  if(Number(row.attempts)>=5) throw new Error('تعداد تلاش‌ها تمام شده است');
+  if(verificationCodeHash(code)!==row.code_hash){await database.query('UPDATE auth_verification_codes SET attempts=attempts+1 WHERE id=$1',[row.id]);throw new Error('کد تأیید نادرست است');}
+  await database.query('UPDATE auth_verification_codes SET consumed_at=NOW() WHERE id=$1',[row.id]);
+  const verifiedColumn = channel==='email' ? 'email_verified' : 'phone_verified';
+  await database.query(`UPDATE users SET ${verifiedColumn}=TRUE,updated_at=NOW() WHERE id=$1`,[userId]);
+  return true;
+}
+export async function findUserForVerification(identifier:string) {
+  const database=db(); if(!database) throw new Error('Database is not configured'); await ensureAuthSchema(database);
+  const normalized=identifier.includes('@')?normalizeEmail(identifier):normalizePhone(identifier);
+  const {rows}=await database.query(`SELECT id,name,email,phone,email_verified,phone_verified,created_at,last_login_at FROM users WHERE LOWER(email)=LOWER($1) OR phone=$1 LIMIT 1`,[normalized]);
+  return rows[0]?userFromRow(rows[0]):null;
+}
