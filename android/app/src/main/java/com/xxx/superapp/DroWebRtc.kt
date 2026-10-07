@@ -270,6 +270,17 @@ class DroWebRtc(
     }
 
     fun stop() {
+        try {
+            val id = sessionId
+            if (id != null) {
+                io.execute {
+                    try {
+                        postJson("/api/phone-control/device/heartbeat",
+                            JSONObject().put("state", "STOPPED").put("mediaProjection", false))
+                    } catch (_: Exception) {}
+                }
+            }
+        } catch (_: Exception) {}
         try { capturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose(); capturer = null
         videoSource?.dispose(); videoSource = null
