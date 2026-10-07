@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     const user = await registerUser({
       name: String(body.name || ''),
       email: String(body.email || ''),
-      phone: String(body.phone || ''),
+      phone: undefined,
       password: String(body.password || '')
     });
     return NextResponse.json({ ok: true, user }, { status: 201 });
