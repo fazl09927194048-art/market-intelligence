@@ -4,7 +4,7 @@ import React,{useEffect,useRef,useState}from'react';
 type Overview={configured:boolean;device:any;session:any};
 export default function PhoneControlPage(){
  const [o,setO]=useState<Overview|null>(null),[loading,setLoading]=useState(true),[pair,setPair]=useState(''),[mode,setMode]=useState('ASSIST'),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[command,setCommand]=useState(''),[confirm,setConfirm]=useState<any>(null);
- const [rtc,setRtc]=useState('OFFLINE'),[stats,setStats]=useState({fps:'—',latency:'—',battery:'—',resolution:'—'});
+ const [rtc,setRtc]=useState('OFFLINE'),[stats,setStats]=useState({fps:'—',latency:'—',battery:'—',resolution:'—'}),[iceServers,setIceServers]=useState<RTCIceServer[]>([]);
  const videoRef=useRef<HTMLVideoElement|null>(null),pcRef=useRef<RTCPeerConnection|null>(null),seenRef=useRef<Set<string>>(new Set());
 
  const load=async()=>{setLoading(true);try{const r=await fetch('/api/phone-control/session',{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error||'AUTH_REQUIRED');setO(j)}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setLoading(false)}};
@@ -13,12 +13,16 @@ export default function PhoneControlPage(){
  async function signal(payload:any){if(!o?.session?.session_id)return;await fetch('/api/phone-control/webrtc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:o.session.session_id,payload})})}
  async function startRtc(){
    if(!o?.session?.session_id)return;
+   try{const cr=await fetch('/api/phone-control/webrtc/config',{cache:'no-store'});const cj=await cr.json();if(cj.ok)setIceServers(cj.servers||[])}catch{}
+
    pcRef.current?.close(); seenRef.current.clear();
-   const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+   const pc=new RTCPeerConnection({iceServers:iceServers.length?iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
    pcRef.current=pc; setRtc('CONNECTING');
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
    pc.onconnectionstatechange=()=>setRtc(pc.connectionState.toUpperCase());
+   let restartTimer:any=null;
+   pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
      for(const s of (j.signals||[])){if(seenRef.current.has(s.id))continue;seenRef.current.add(s.id);const p=s.payload||{};
