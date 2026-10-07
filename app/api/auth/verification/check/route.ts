@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, channel });
   } catch (e) {
     const message = e instanceof Error ? e.message : 'تأیید کد انجام نشد';
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    const status = message.includes('Database') || message.includes('ENOTFOUND') || message.includes('ECONN') ? 503 : 400;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
