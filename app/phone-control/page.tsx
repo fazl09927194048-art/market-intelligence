@@ -20,7 +20,7 @@ export default function PhoneControlPage(){
 
    pcRef.current?.close(); seenRef.current.clear();
    const pc=new RTCPeerConnection({iceServers:configuredIceServers});
-   pcRef.current=pc; reconnectRef.current=0; setRtc('CONNECTING');
+   pcRef.current=pc; setRtc('CONNECTING');
    const control=pc.createDataChannel('dro-control');
    const sendQuality=(width:number,height:number,fps:number)=>{if(control.readyState==='open')control.send(JSON.stringify({type:'quality',width,height,fps}))};
    control.onopen=()=>{const portrait=window.innerHeight>window.innerWidth;sendQuality(portrait?720:1280,portrait?1280:720,15)};
@@ -31,7 +31,7 @@ export default function PhoneControlPage(){
    let statTimer:any=null;
    let restartTimer:any=null;
    (pc as any).__cleanup=()=>{stopped=true;if(pollTimer)clearTimeout(pollTimer);if(statTimer)clearInterval(statTimer);if(restartTimer)clearTimeout(restartTimer)};
-   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectRef.current<5&&!stopped){reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
+   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&!stopped){if(reconnectRef.current>=5){setRtc('RECONNECT_LIMIT');return}reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc&&!stopped)startRtc()},4000)}};
    pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc||stopped)return;try{
      const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
