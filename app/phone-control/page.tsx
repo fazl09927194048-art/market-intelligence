@@ -1,16 +1,48 @@
 'use client';
-import React,{useEffect,useState}from'react';
+import React,{useEffect,useRef,useState}from'react';
+
 type Overview={configured:boolean;device:any;session:any};
 export default function PhoneControlPage(){
- const [o,setO]=useState<Overview|null>(null),[loading,setLoading]=useState(true),[pair,setPair]=useState(''),[mode,setMode]=useState('ASSIST'),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[command,setCommand]=useState(''),[confirm,setConfirm]=useState<any>(null),[actions,setActions]=useState<any[]>([]);
+ const [o,setO]=useState<Overview|null>(null),[loading,setLoading]=useState(true),[pair,setPair]=useState(''),[mode,setMode]=useState('ASSIST'),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[command,setCommand]=useState(''),[confirm,setConfirm]=useState<any>(null);
+ const [rtc,setRtc]=useState('OFFLINE'),[stats,setStats]=useState({fps:'—',latency:'—',battery:'—',resolution:'—'});
+ const videoRef=useRef<HTMLVideoElement|null>(null),pcRef=useRef<RTCPeerConnection|null>(null),seenRef=useRef<Set<string>>(new Set());
+
  const load=async()=>{setLoading(true);try{const r=await fetch('/api/phone-control/session',{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error||'AUTH_REQUIRED');setO(j)}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setLoading(false)}};
  useEffect(()=>{load();const t=setInterval(load,5000);return()=>clearInterval(t)},[]);
+
+ async function signal(payload:any){if(!o?.session?.session_id)return;await fetch('/api/phone-control/webrtc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:o.session.session_id,payload})})}
+ async function startRtc(){
+   if(!o?.session?.session_id)return;
+   pcRef.current?.close(); seenRef.current.clear();
+   const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+   pcRef.current=pc; setRtc('CONNECTING');
+   pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
+   pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
+   pc.onconnectionstatechange=()=>setRtc(pc.connectionState.toUpperCase());
+   const poll=async()=>{if(pcRef.current!==pc)return;try{
+     const r=await fetch('/api/phone-control/webrtc?sessionId='+encodeURIComponent(o.session.session_id),{cache:'no-store'});const j=await r.json();
+     for(const s of (j.signals||[])){if(seenRef.current.has(s.id))continue;seenRef.current.add(s.id);const p=s.payload||{};
+       if(p.sdp?.type==='offer'){await pc.setRemoteDescription({type:'offer',sdp:p.sdp.sdp});const answer=await pc.createAnswer();await pc.setLocalDescription(answer);await signal({sdp:{type:'answer',sdp:answer.sdp}})}
+       if(p.candidate?.candidate){try{await pc.addIceCandidate(p.candidate)}catch{}}
+     }
+   }catch{} setTimeout(poll,800)};poll();
+   const statTimer=setInterval(async()=>{if(pcRef.current!==pc){clearInterval(statTimer);return}try{
+     const rs=await pc.getStats();rs.forEach((v:any)=>{if(v.type==='inbound-rtp'&&v.kind==='video'){
+       const fps=v.framesPerSecond??v.framesDecoded;const w=v.frameWidth,h=v.frameHeight;
+       setStats(x=>({...x,fps:fps?String(Math.round(fps)):'—',resolution:w&&h?w+'×'+h:x.resolution,latency:v.jitter?Math.round(v.jitter*1000)+' ms':x.latency}))
+     }})
+   }catch{}},2000);
+ }
+ useEffect(()=>{if(o?.session?.session_id)startRtc();return()=>{pcRef.current?.close();pcRef.current=null}},[o?.session?.session_id]);
+
  async function pairing(){setBusy(true);setMsg('');try{const r=await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pairing-code'})});const j=await r.json();if(!r.ok)throw new Error(j.error||'FAILED');setPair(j.code)}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setBusy(false)}}
  async function start(){setBusy(true);setMsg('');try{const r=await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'start',mode})});const j=await r.json();if(!r.ok)throw new Error(j.error||'FAILED');setO(x=>x?{...x,session:j.session}:x);setMsg('PHONE SESSION CREATED')}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setBusy(false)}}
- async function stop(){await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'emergency-stop'})});setMsg('EMERGENCY STOP ACTIVE');await load()} async function send(confirmed=false){if(!command.trim()||!o?.session?.session_id)return;const r=await fetch('/api/phone-control/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:command,sessionId:o.session.session_id,mode,confirmed})});const j=await r.json();if(j.requiresConfirmation){setConfirm(j);return}setMsg(j.text|| (j.action?'ACTION QUEUED':'DRO RECEIVED'));setCommand('');setConfirm(null)}
+ async function stop(){pcRef.current?.close();pcRef.current=null;await fetch('/api/phone-control/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'emergency-stop'})});setRtc('STOPPED');setMsg('EMERGENCY STOP ACTIVE');await load()}
+ async function send(confirmed=false){if(!command.trim()||!o?.session?.session_id)return;const r=await fetch('/api/phone-control/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:command,sessionId:o.session.session_id,mode,confirmed})});const j=await r.json();if(j.requiresConfirmation){setConfirm(j);return}setMsg(j.text||(j.action?'ACTION QUEUED':'DRO RECEIVED'));setCommand('');setConfirm(null)}
+
  return <main className="phoneControl"><header><a href="/settings">← Settings</a><div><small>FLI / DRO</small><h1>DRO PHONE CONTROL</h1><p>کنترل امن گوشی اندروید با DRO</p></div><button onClick={stop}>EMERGENCY STOP</button></header>
- <div className="phoneLayout"><section className="phoneScreen"><div className="screenTop"><b>LIVE ANDROID SCREEN</b><span>{o?.device?.lastSeenAt?'CONNECTED':'WAITING FOR COMPANION'}</span></div><div className="screenViewport"><div className="screenPlaceholder">{loading?'Loading…':o?.device?<><strong>📱</strong><b>Android Companion</b><small>WebRTC screen will appear here when the companion opens a live session.</small></>:<><strong>📱</strong><b>Connect your Android</b><small>Pair the companion once. After that DRO can reuse the trusted device.</small></>}</div></div><div className="phoneStats"><span>FPS <b>—</b></span><span>LATENCY <b>—</b></span><span>BATTERY <b>—</b></span><span>RESOLUTION <b>—</b></span></div><div className="phoneActions"><button>‹</button><button>⌂</button><button>▣</button><button>SCREENSHOT</button></div></section>
- <section className="droPhoneChat"><div className="chatHead"><div><b>DRO</b><small>Observe → Assist → Autonomous</small></div><select value={mode}onChange={e=>setMode(e.target.value)}><option>OBSERVE</option><option>ASSIST</option><option>AUTONOMOUS</option></select></div><div className="chatBody"><div className="chatMsg"><b>DRO</b><p>{o?.device?'دستگاه مورد اعتماد آماده است. Session را شروع کن تا کانال کنترل فعال شود.':'هنوز دستگاه مورد اعتمادی جفت نشده است.'}</p></div>{msg&&<div className="chatMsg"><b>SYSTEM</b><p>{msg}</p></div>}</div><div className="chatInput"><input value={command} onChange={e=>setCommand(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')send()}} placeholder="مثلاً: برگرد عقب"/><button onClick={()=>send()}>ارسال</button>{confirm&&<div className="chatMsg"><b>CONFIRMATION</b><p>{confirm.text}</p><button onClick={()=>send(true)}>تأیید اجرا</button></div>}</div></section></div>
- <section className="setupCard"><h2>One-time setup</h2>{o?.device?<><p>✓ دستگاه {o.device.name} قبلاً Trust شده. در استفاده‌های بعدی این مرحله تکرار نمی‌شود مگر مجوزها لغو یا دستگاه Revoked شود.</p><button onClick={start}disabled={busy}>START PHONE SESSION</button></>:<><p>۱) اپ xXx DRO را نصب کن. ۲) کد زیر را داخل اپ وارد کن. ۳) مجوزهای لازم را فقط یک‌بار در Android تأیید کن.</p><button onClick={pairing}disabled={busy}>{pair?'PAIRING CODE: '+pair:'GENERATE PAIRING CODE'}</button></>}</section>
+ <div className="phoneLayout"><section className="phoneScreen"><div className="screenTop"><b>LIVE ANDROID SCREEN</b><span>{rtc}</span></div><div className="screenViewport"><video ref={videoRef} autoPlay playsInline muted className="phoneLiveVideo"/>{rtc!=='CONNECTED'&&<div className="screenPlaceholder"><strong>📱</strong><b>{loading?'Loading…':'Waiting for live screen'}</b><small>{o?.device?'Android Companion connected. Start screen sharing on the phone.':'Pair the Android Companion first.'}</small></div>}</div><div className="phoneStats"><span>FPS <b>{stats.fps}</b></span><span>LATENCY <b>{stats.latency}</b></span><span>BATTERY <b>{o?.device?.battery??'—'}</b></span><span>RESOLUTION <b>{stats.resolution}</b></span></div><div className="phoneActions"><button onClick={()=>send(true)}>‹</button><button onClick={()=>send(true)}>⌂</button><button onClick={()=>send(true)}>▣</button><button onClick={()=>{setCommand('از صفحه عکس بگیر');send()}}>SCREENSHOT</button></div></section>
+ <section className="droPhoneChat"><div className="chatHead"><div><b>DRO</b><small>Observe → Assist → Autonomous</small></div><select value={mode}onChange={e=>setMode(e.target.value)}><option>OBSERVE</option><option>ASSIST</option><option>AUTONOMOUS</option></select></div><div className="chatBody"><div className="chatMsg"><b>DRO</b><p>{o?.device?'دستگاه مورد اعتماد آماده است. برای تصویر زنده، Share live screen را در اپ اندروید بزن.':'هنوز دستگاه مورد اعتمادی جفت نشده است.'}</p></div>{msg&&<div className="chatMsg"><b>SYSTEM</b><p>{msg}</p></div>}</div><div className="chatInput"><input value={command}onChange={e=>setCommand(e.target.value)}onKeyDown={e=>{if(e.key==='Enter')send()}}placeholder="مثلاً: برگرد عقب"/><button onClick={()=>send()}>ارسال</button>{confirm&&<div className="chatMsg"><b>CONFIRMATION</b><p>{confirm.text}</p><button onClick={()=>send(true)}>تأیید اجرا</button></div>}</div></section></div>
+ <section className="setupCard"><h2>One-time setup</h2>{o?.device?<><p>✓ دستگاه {o.device.name} قبلاً Trust شده. مجوزها فقط در صورت لغو یا Revoked شدن دوباره لازم می‌شوند.</p><button onClick={start}disabled={busy}>START PHONE SESSION</button></>:<><p>۱) اپ xXx DRO را نصب کن. ۲) کد زیر را داخل اپ وارد کن. ۳) مجوزهای Android را فقط یک‌بار تأیید کن.</p><button onClick={pairing}disabled={busy}>{pair?'PAIRING CODE: '+pair:'GENERATE PAIRING CODE'}</button></>}</section>
  </main>
 }
