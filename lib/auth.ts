@@ -6,6 +6,7 @@ const scrypt = promisify(scryptCb);
 const SESSION_COOKIE = 'fli_session';
 const SESSION_DAYS = 30;
 let pool: Pool | null = null;
+let schemaReady = false;
 
 function db() {
   if (!process.env.DATABASE_URL) return null;
@@ -17,6 +18,49 @@ function db() {
     ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false }
   });
   return pool;
+}
+
+async function ensureAuthSchema(database: Pool) {
+  if (schemaReady) return;
+  await database.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_login_at TIMESTAMPTZ
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_uidx ON users (LOWER(email));
+    CREATE UNIQUE INDEX IF NOT EXISTS users_phone_uidx ON users (phone);
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ip TEXT,
+      user_agent TEXT
+    );
+    CREATE INDEX IF NOT EXISTS auth_sessions_user_idx ON auth_sessions(user_id);
+    CREATE INDEX IF NOT EXISTS auth_sessions_expiry_idx ON auth_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS auth_verification_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL CHECK (channel IN ('email','phone')),
+      code_hash TEXT NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      consumed_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  schemaReady = true;
 }
 
 export type AuthUser = {
@@ -56,7 +100,8 @@ function tokenHash(token: string) {
 }
 
 function cookieSignature(token: string) {
-  const secret = process.env.AUTH_SECRET || process.env.DATABASE_URL || 'fli-dev-auth-secret';
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is not configured');
   return createHmac('sha256', secret).update(token).digest('base64url');
 }
 
@@ -103,6 +148,8 @@ async function userFromRow(row: any): Promise<AuthUser> {
 export async function registerUser(input: {name:string; email:string; phone:string; password:string}) {
   const database = db();
   if (!database) throw new Error('Database is not configured');
+  await ensureAuthSchema(database);
+  await ensureAuthSchema(database);
   const name = input.name.trim().replace(/\s+/g, ' ');
   const email = normalizeEmail(input.email);
   const phone = normalizePhone(input.phone);
@@ -150,6 +197,8 @@ export async function loginUser(identifier: string, password: string, meta?: {ip
 export async function getCurrentUser(cookieHeader: string | null) {
   const database = db();
   const token = readSessionToken(cookieHeader);
+  if (database) await ensureAuthSchema(database);
+  if (database) await ensureAuthSchema(database);
   if (!database || !token) return null;
   const { rows } = await database.query(
     `SELECT u.id,u.name,u.email,u.phone,u.email_verified,u.phone_verified,u.created_at,u.last_login_at
