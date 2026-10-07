@@ -29,6 +29,7 @@ export async function POST(request:Request){
       const {code}=await createVerificationCode(user.id,'email');
       await sendEmail(user.email,code,user.name);
     } else {
+      if(!user.phone) return NextResponse.json({ok:false,error:'برای این حساب شماره تلفن ثبت نشده است'},{status:400});
       await sendPhone(user.phone);
     }
     return NextResponse.json({ok:true,channel});
