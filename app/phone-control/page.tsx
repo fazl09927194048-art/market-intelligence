@@ -5,7 +5,7 @@ type Overview={configured:boolean;device:any;session:any};
 export default function PhoneControlPage(){
  const [o,setO]=useState<Overview|null>(null),[loading,setLoading]=useState(true),[pair,setPair]=useState(''),[mode,setMode]=useState('ASSIST'),[busy,setBusy]=useState(false),[msg,setMsg]=useState(''),[command,setCommand]=useState(''),[confirm,setConfirm]=useState<any>(null);
  const [rtc,setRtc]=useState('OFFLINE'),[stats,setStats]=useState({fps:'—',latency:'—',battery:'—',resolution:'—'}),[iceServers,setIceServers]=useState<RTCIceServer[]>([]);
- const videoRef=useRef<HTMLVideoElement|null>(null),pcRef=useRef<RTCPeerConnection|null>(null),seenRef=useRef<Set<string>>(new Set());\n let reconnectAttempts=0;
+ const videoRef=useRef<HTMLVideoElement|null>(null),pcRef=useRef<RTCPeerConnection|null>(null),seenRef=useRef<Set<string>>(new Set()),reconnectRef=useRef(0);
 
  const load=async()=>{setLoading(true);try{const r=await fetch('/api/phone-control/session',{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error||'AUTH_REQUIRED');setO(j)}catch(e){setMsg(e instanceof Error?e.message:'FAILED')}finally{setLoading(false)}};
  useEffect(()=>{load();const t=setInterval(load,5000);return()=>clearInterval(t)},[]);
@@ -16,11 +16,11 @@ export default function PhoneControlPage(){
    try{const cr=await fetch('/api/phone-control/webrtc/config',{cache:'no-store'});const cj=await cr.json();if(cj.ok)setIceServers(cj.servers||[])}catch{}
 
    pcRef.current?.close(); seenRef.current.clear();
-   const pc=new RTCPeerConnection({iceServers:servers.length?servers:[{urls:'stun:stun.l.google.com:19302'}]});
-   pcRef.current=pc; setRtc('CONNECTING');
+   const pc=new RTCPeerConnection({iceServers:iceServers.length?iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+   pcRef.current=pc; reconnectRef.current=0; setRtc('CONNECTING');
    pc.ontrack=e=>{if(videoRef.current&&e.streams[0]){videoRef.current.srcObject=e.streams[0];videoRef.current.play().catch(()=>{})}};
    pc.onicecandidate=e=>{if(e.candidate)signal({candidate:{candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex}})};
-   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectAttempts<5){reconnectAttempts++;setTimeout(()=>{if(pcRef.current===pc)startRtc()},4000)}};
+   pc.onconnectionstatechange=()=>{setRtc(pc.connectionState.toUpperCase());if((pc.connectionState==='failed'||pc.connectionState==='disconnected')&&reconnectRef.current<5){reconnectRef.current++;setTimeout(()=>{if(pcRef.current===pc)startRtc()},4000)}};
    let restartTimer:any=null;
    pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;if(s==='failed'||s==='disconnected'){if(restartTimer)return;restartTimer=setTimeout(async()=>{restartTimer=null;try{pc.restartIce();const offer=await pc.createOffer({iceRestart:true});await pc.setLocalDescription(offer);await signal({sdp:{type:'offer',sdp:offer.sdp,iceRestart:true}});setRtc('ICE_RESTARTING')}catch{}},1500)}};
    const poll=async()=>{if(pcRef.current!==pc)return;try{
