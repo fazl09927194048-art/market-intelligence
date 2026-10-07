@@ -8,6 +8,7 @@ import android.media.projection.MediaProjection
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 
 class ScreenCaptureService : Service() {
     companion object {
@@ -62,7 +63,12 @@ class ScreenCaptureService : Service() {
             ).build()
 
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
