@@ -1,0 +1,170 @@
+import { Pool } from 'pg';
+import { createHash, createHmac, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'crypto';
+import { promisify } from 'util';
+
+const scrypt = promisify(scryptCb);
+const SESSION_COOKIE = 'fli_session';
+const SESSION_DAYS = 30;
+let pool: Pool | null = null;
+
+function db() {
+  if (!process.env.DATABASE_URL) return null;
+  if (!pool) pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+    ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false }
+  });
+  return pool;
+}
+
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  createdAt: string;
+  lastLoginAt?: string | null;
+};
+
+function normalizeEmail(v: string) { return v.trim().toLowerCase(); }
+function normalizePhone(v: string) {
+  return v.trim().replace(/[\s().-]/g, '');
+}
+function validEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+function validPhone(v: string) { return /^\+?[0-9]{8,16}$/.test(v); }
+
+async function hashPassword(password: string) {
+  const salt = randomBytes(16).toString('hex');
+  const key = (await scrypt(password, salt, 64)) as Buffer;
+  return `scrypt:${salt}:${key.toString('hex')}`;
+}
+
+async function verifyPassword(password: string, stored: string) {
+  const [scheme, salt, hex] = stored.split(':');
+  if (scheme !== 'scrypt' || !salt || !hex) return false;
+  const key = (await scrypt(password, salt, 64)) as Buffer;
+  const expected = Buffer.from(hex, 'hex');
+  return expected.length === key.length && timingSafeEqual(expected, key);
+}
+
+function tokenHash(token: string) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function cookieSignature(token: string) {
+  const secret = process.env.AUTH_SECRET || process.env.DATABASE_URL || 'fli-dev-auth-secret';
+  return createHmac('sha256', secret).update(token).digest('base64url');
+}
+
+export function sessionCookie(token: string, expires: Date) {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `${SESSION_COOKIE}=${token}.${cookieSignature(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.floor((expires.getTime()-Date.now())/1000))}${secure}`;
+}
+
+export function clearSessionCookie() {
+  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+}
+
+export function readSessionToken(cookieHeader: string | null) {
+  if (!cookieHeader) return null;
+  const part = cookieHeader.split(';').map(x => x.trim()).find(x => x.startsWith(SESSION_COOKIE+'='));
+  if (!part) return null;
+  const raw = part.slice(SESSION_COOKIE.length + 1);
+  const dot = raw.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const token = raw.slice(0, dot);
+  const signature = raw.slice(dot + 1);
+  const expected = cookieSignature(token);
+  if (signature.length !== expected.length) return null;
+  try {
+    if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  } catch { return null; }
+  return token;
+}
+
+async function userFromRow(row: any): Promise<AuthUser> {
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    email: String(row.email),
+    phone: String(row.phone),
+    emailVerified: Boolean(row.email_verified),
+    phoneVerified: Boolean(row.phone_verified),
+    createdAt: new Date(row.created_at).toISOString(),
+    lastLoginAt: row.last_login_at ? new Date(row.last_login_at).toISOString() : null
+  };
+}
+
+export async function registerUser(input: {name:string; email:string; phone:string; password:string}) {
+  const database = db();
+  if (!database) throw new Error('Database is not configured');
+  const name = input.name.trim().replace(/\s+/g, ' ');
+  const email = normalizeEmail(input.email);
+  const phone = normalizePhone(input.phone);
+  if (name.length < 2 || name.length > 80) throw new Error('نام باید بین ۲ تا ۸۰ کاراکتر باشد');
+  if (!validEmail(email)) throw new Error('ایمیل معتبر نیست');
+  if (!validPhone(phone)) throw new Error('شماره تلفن معتبر نیست');
+  if (input.password.length < 8 || input.password.length > 128) throw new Error('رمز عبور باید حداقل ۸ کاراکتر باشد');
+
+  const passwordHash = await hashPassword(input.password);
+  try {
+    const { rows } = await database.query(
+      `INSERT INTO users(name,email,phone,password_hash)
+       VALUES($1,$2,$3,$4)
+       RETURNING id,name,email,phone,email_verified,phone_verified,created_at,last_login_at`,
+      [name,email,phone,passwordHash]
+    );
+    return userFromRow(rows[0]);
+  } catch (e: any) {
+    if (e?.code === '23505') throw new Error('این ایمیل یا شماره تلفن قبلاً ثبت شده است');
+    throw e;
+  }
+}
+
+export async function loginUser(identifier: string, password: string, meta?: {ip?:string; userAgent?:string}) {
+  const database = db();
+  if (!database) throw new Error('Database is not configured');
+  const normalized = identifier.includes('@') ? normalizeEmail(identifier) : normalizePhone(identifier);
+  const { rows } = await database.query(
+    `SELECT id,name,email,phone,password_hash,email_verified,phone_verified,created_at,last_login_at
+     FROM users WHERE LOWER(email)=LOWER($1) OR phone=$1 LIMIT 1`, [normalized]
+  );
+  const row = rows[0];
+  if (!row || !(await verifyPassword(password, row.password_hash))) throw new Error('اطلاعات ورود نادرست است');
+
+  await database.query('UPDATE users SET last_login_at=NOW(),updated_at=NOW() WHERE id=$1', [row.id]);
+  const token = randomBytes(32).toString('base64url');
+  const expires = new Date(Date.now() + SESSION_DAYS * 86400000);
+  await database.query(
+    `INSERT INTO auth_sessions(user_id,token_hash,expires_at,ip,user_agent) VALUES($1,$2,$3,$4,$5)`,
+    [row.id, tokenHash(token), expires, meta?.ip?.slice(0,128) || null, meta?.userAgent?.slice(0,512) || null]
+  );
+  return { user: await userFromRow({...row,last_login_at:new Date()}), token, expires };
+}
+
+export async function getCurrentUser(cookieHeader: string | null) {
+  const database = db();
+  const token = readSessionToken(cookieHeader);
+  if (!database || !token) return null;
+  const { rows } = await database.query(
+    `SELECT u.id,u.name,u.email,u.phone,u.email_verified,u.phone_verified,u.created_at,u.last_login_at
+     FROM auth_sessions s JOIN users u ON u.id=s.user_id
+     WHERE s.token_hash=$1 AND s.expires_at>NOW() LIMIT 1`, [tokenHash(token)]
+  );
+  if (!rows[0]) return null;
+  await database.query('UPDATE auth_sessions SET last_seen_at=NOW() WHERE token_hash=$1', [tokenHash(token)]).catch(()=>{});
+  return userFromRow(rows[0]);
+}
+
+export async function logoutUser(cookieHeader: string | null) {
+  const database = db();
+  const token = readSessionToken(cookieHeader);
+  if (database && token) await database.query('DELETE FROM auth_sessions WHERE token_hash=$1',[tokenHash(token)]);
+}
+
+export function authCookieName() { return SESSION_COOKIE; }
