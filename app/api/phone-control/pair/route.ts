@@ -1,0 +1,4 @@
+import {NextRequest,NextResponse} from 'next/server';
+import {pairDevice} from '@/lib/dro-phone-control';
+import {consumeRateLimit} from '@/lib/request-guard';
+export async function POST(req:NextRequest){const guard=consumeRateLimit(req,'phone-pair',8);if(!guard.allowed)return NextResponse.json({ok:false,error:'TOO_MANY_PAIR_ATTEMPTS',retryAfter:guard.retryAfter},{status:429});try{const b=await req.json(); if(!b?.code||!b?.deviceId)return NextResponse.json({ok:false,error:'PAIRING_CODE_AND_DEVICE_ID_REQUIRED'},{status:400}); const r=await pairDevice({code:String(b.code),deviceId:String(b.deviceId),name:String(b.name||'Android'),platform:String(b.platform||'android'),publicKey:typeof b.publicKey==='string'?b.publicKey.slice(0,8000):undefined}); return NextResponse.json({ok:true,...r});}catch(e){return NextResponse.json({ok:false,error:e instanceof Error?e.message:'PAIRING_FAILED'},{status:400});}}
