@@ -102,7 +102,26 @@ class DroWebRtc(
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) {}
             override fun onAddStream(stream: MediaStream?) {}
             override fun onRemoveStream(stream: MediaStream?) {}
-            override fun onDataChannel(dc: DataChannel?) {\n                dc?.registerObserver(object : DataChannel.Observer {\n                    override fun onBufferedAmountChange(previousAmount: Long) {}\n                    override fun onStateChange() {}\n                    override fun onMessage(buffer: DataChannel.Buffer?) {\n                        if (buffer == null) return\n                        try {\n                            val bytes = ByteArray(buffer.data.remaining())\n                            buffer.data.get(bytes)\n                            val message = JSONObject(String(bytes, Charsets.UTF_8))\n                            if (message.optString("type") == "quality") {\n                                val w = message.optInt("width", 720).coerceIn(360, 1280)\n                                val h = message.optInt("height", 1280).coerceIn(360, 1280)\n                                val fps = message.optInt("fps", 15).coerceIn(5, 30)\n                                capturer?.changeCaptureFormat(w and 1.inv(), h and 1.inv(), fps)\n                            }\n                        } catch (_: Exception) {}\n                    }\n                })\n            }
+            override fun onDataChannel(dc: DataChannel?) {
+                dc?.registerObserver(object : DataChannel.Observer {
+                    override fun onBufferedAmountChange(previousAmount: Long) {}
+                    override fun onStateChange() {}
+                    override fun onMessage(buffer: DataChannel.Buffer?) {
+                        if (buffer == null) return
+                        try {
+                            val bytes = ByteArray(buffer.data.remaining())
+                            buffer.data.get(bytes)
+                            val message = JSONObject(String(bytes, Charsets.UTF_8))
+                            if (message.optString("type") == "quality") {
+                                val w = message.optInt("width", 720).coerceIn(360, 1280)
+                                val h = message.optInt("height", 1280).coerceIn(360, 1280)
+                                val fps = message.optInt("fps", 15).coerceIn(5, 30)
+                                capturer?.changeCaptureFormat(if (w % 2 == 0) w else w - 1, if (h % 2 == 0) h else h - 1, fps)
+                            }
+                        } catch (_: Exception) {}
+                    }
+                })
+            }
             override fun onRenegotiationNeeded() {}
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {}
             override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) { onState("PEER_" + newState) }
