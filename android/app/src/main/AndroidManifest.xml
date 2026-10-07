@@ -15,5 +15,9 @@
         <service android:name=".DROOverlayService" android:exported="false" android:foregroundServiceType="specialUse" android:stopWithTask="false">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="user-enabled floating DRO dashboard overlay" />
         </service>
-    </application>
+    <service android:name=".DROAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="false">
+ <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+ <meta-data android:name="android.accessibilityservice" android:resource="@xml/dro_accessibility_service" />
+</service>
+</application>
 </manifest>
