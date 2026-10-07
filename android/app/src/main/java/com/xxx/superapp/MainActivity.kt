@@ -12,10 +12,74 @@ import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.charset.StandardCharsets
+import java.security.KeyStore
 import java.util.UUID
 import java.util.concurrent.Executors
 import android.util.Base64
-import java.security.KeyPairGenerator
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.spec.GCMParameterSpec
+
+private const val SECURE_PREFS = "dro_secure"
+private const val TOKEN_KEY = "device_token"
+private const val TOKEN_AES_ALIAS = "dro_device_token_aes"
+private const val SIGNING_ALIAS = "dro_device_signing"
+
+fun secureDeviceToken(context: Context): String? {
+    val packed = context.getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE)
+        .getString(TOKEN_KEY, null) ?: return null
+    return try {
+        val bytes = Base64.decode(packed, Base64.NO_WRAP)
+        if (bytes.size <= 12) return null
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val key = keyStore.getKey(TOKEN_AES_ALIAS, null) as? javax.crypto.SecretKey ?: return null
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
+        String(cipher.doFinal(bytes.copyOfRange(12, bytes.size)), StandardCharsets.UTF_8)
+    } catch (_: Exception) { null }
+}
+
+fun saveSecureDeviceToken(context: Context, token: String) {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val key = (keyStore.getKey(TOKEN_AES_ALIAS, null) as? javax.crypto.SecretKey)
+        ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
+            init(KeyGenParameterSpec.Builder(
+                TOKEN_AES_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+             .build())
+        }.generateKey()
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE, key)
+    val ciphertext = cipher.doFinal(token.toByteArray(StandardCharsets.UTF_8))
+    val packed = ByteArray(cipher.iv.size + ciphertext.size)
+    System.arraycopy(cipher.iv, 0, packed, 0, cipher.iv.size)
+    System.arraycopy(ciphertext, 0, packed, cipher.iv.size, ciphertext.size)
+    context.getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE).edit()
+        .putString(TOKEN_KEY, Base64.encodeToString(packed, Base64.NO_WRAP))
+        .apply()
+}
+
+fun clearSecureDeviceToken(context: Context) {
+    context.getSharedPreferences(SECURE_PREFS, Context.MODE_PRIVATE).edit().remove(TOKEN_KEY).apply()
+}
+
+fun deviceSigningPublicKey(): String {
+    val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    if (!ks.containsAlias(SIGNING_ALIAS)) {
+        val generator = java.security.KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
+        generator.initialize(KeyGenParameterSpec.Builder(
+            SIGNING_ALIAS,
+            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+        ).setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512).build())
+        generator.generateKeyPair()
+    }
+    return Base64.encodeToString(ks.getCertificate(SIGNING_ALIAS).publicKey.encoded, Base64.NO_WRAP)
+}
 
 class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
@@ -49,7 +113,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() { super.onResume(); if (::status.isInitialized) updateStatus() }
 
     private fun updateStatus() {
-        val trusted = prefs.getString("device_token", null) != null
+        val trusted = secureDeviceToken(this) != null
         val overlay = Settings.canDrawOverlays(this)
         status.text = "Pairing: " + if (trusted) "TRUSTED ✓" else "NOT PAIRED" +
             "\nOverlay: " + if (overlay) "READY ✓" else "NEEDED" +
@@ -63,16 +127,6 @@ class MainActivity : AppCompatActivity() {
         return id
     }
 
-    private fun publicKey(): String {
-        prefs.getString("public_key", null)?.let { return it }
-        val gen = KeyPairGenerator.getInstance("EC")
-        gen.initialize(256)
-        val pair = gen.generateKeyPair()
-        val pub = Base64.encodeToString(pair.public.encoded, Base64.NO_WRAP)
-        prefs.edit().putString("public_key", pub).apply()
-        return pub
-    }
-
     private fun pairDevice(code: String) {
         val clean = code.trim().uppercase()
         if (clean.length < 6) { Toast.makeText(this, "Pairing code را وارد کن", Toast.LENGTH_SHORT).show(); return }
@@ -84,16 +138,16 @@ class MainActivity : AppCompatActivity() {
                     put("deviceId", deviceId())
                     put("name", "xXx DRO Android")
                     put("platform", "android")
-                    put("publicKey", publicKey())
+                    put("publicKey", deviceSigningPublicKey())
                 }
                 val conn = URL(serverUrl + "/api/phone-control/pair").openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"; conn.doOutput = true; conn.connectTimeout = 10000; conn.readTimeout = 10000
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                conn.outputStream.use { it.write(body.toString().toByteArray(StandardCharsets.UTF_8)) }
                 val source = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
                 val json = JSONObject(source.bufferedReader().readText())
                 if (!json.optBoolean("ok")) throw IllegalStateException(json.optString("error", "PAIRING_FAILED"))
-                prefs.edit().putString("device_token", json.getString("token")).apply()
+                saveSecureDeviceToken(this, json.getString("token"))
                 runOnUiThread { Toast.makeText(this, "Android trusted شد ✓", Toast.LENGTH_LONG).show(); updateStatus() }
             } catch (e: Exception) {
                 runOnUiThread { status.text = "Pairing failed: " + (e.message ?: "UNKNOWN") }
