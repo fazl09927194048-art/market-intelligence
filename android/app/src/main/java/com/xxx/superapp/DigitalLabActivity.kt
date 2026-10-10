@@ -321,6 +321,7 @@ class DigitalLabActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 runOnUiThread {
                     loading = false
+                    marketDataValid = false
                     marketMessage = "اتصال ناموفق: " + (e.message ?: "خطای شبکه")
                     updateStatus(); render()
                 }
