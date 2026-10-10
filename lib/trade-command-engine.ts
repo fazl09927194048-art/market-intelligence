@@ -181,16 +181,42 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  const x=await getExchange(userId,String(trade.exchange_id));
  if(String(x.record.name).toLowerCase()!=='binance') throw new Error('Command execution currently supports Binance.');
  if(!x.record.permissions?.trading) throw new Error('Trading permission is disabled on this API key.');
- const base=String(trade.symbol).replace(/USDT$|USDC$|BUSD$|FDUSD$/,'');
- if(!base||base===trade.symbol) throw new Error('Unsupported quote asset for automatic spot close.');
- const balances=await exchangeManager.balance(x.record.name,x.credentials);
- const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===base):null;
- const available=Number(row?.free||0);
- const positionQty=openPositionQuantity(trade); const qty=Math.floor(Math.min(available,positionQty)*(pct/100)*1e8)/1e8;
- if(!Number.isFinite(qty)||qty<=0) throw new Error('No available spot balance for this close command.');
+ const accountType=String(x.record.account_type||'SPOT').toUpperCase();
+ let closeSide:'BUY'|'SELL'='SELL';
+ let available=0;
+ if(accountType==='FUTURES'){
+   const result=await exchangeManager.positions(x.record.name,x.credentials);
+   const positions=Array.isArray(result?.positions)?result.positions:[];
+   const matching=positions.filter((v:any)=>String(v?.symbol||'').toUpperCase()===String(trade.symbol).toUpperCase()&&Math.abs(Number(v?.positionAmt)||0)>0);
+   if(matching.length>1) throw new Error('Multiple Futures positions exist for this symbol (likely Hedge mode). Automatic close is blocked until positionSide-aware execution is supported.');
+   const actual=matching[0]; const amount=Number(actual?.positionAmt||0);
+   if(!actual||!Number.isFinite(amount)||amount===0) throw new Error('No open Futures position exists on the exchange.');
+   const positionSide=amount<0?'SELL':'BUY';
+   if(String(trade.side||'').toUpperCase()!==positionSide) throw new Error('The exchange position direction does not match this trade record; reconciliation is required before closing.');
+   closeSide=amount<0?'BUY':'SELL';
+   available=Math.abs(amount);
+ }else{
+   const base=String(trade.symbol).replace(/USDT$|USDC$|BUSD$|FDUSD$/,'');
+   if(!base||base===trade.symbol) throw new Error('Unsupported quote asset for automatic spot close.');
+   const balances=await exchangeManager.balance(x.record.name,x.credentials);
+   const row=Array.isArray(balances)?balances.find((v:any)=>String(v?.asset||'').toUpperCase()===base):null;
+   available=Number(row?.free||0);
+ }
+ const positionQty=openPositionQuantity(trade);
+ const rawQty=Math.min(available,positionQty)*(pct/100);
+ let qty=rawQty;
+ if(accountType==='FUTURES'){
+   const markets=await exchangeManager.markets(x.record.name,x.credentials);
+   const market=(Array.isArray(markets?.symbols)?markets.symbols:[]).find((v:any)=>String(v?.symbol||'').toUpperCase()===String(trade.symbol).toUpperCase());
+   const filters=Array.isArray(market?.filters)?market.filters:[];
+   const step=Number(filters.find((v:any)=>v?.filterType==='MARKET_LOT_SIZE'&&Number(v?.stepSize)>0)?.stepSize||filters.find((v:any)=>v?.filterType==='LOT_SIZE'&&Number(v?.stepSize)>0)?.stepSize||0);
+   if(step>0) qty=Math.floor((rawQty+Number.EPSILON)/step)*step;
+   qty=Number(qty.toPrecision(12));
+ }
+ if(!Number.isFinite(qty)||qty<=0) throw new Error('No valid close quantity is available for this position.');
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
  const clientOrderId='FLI_CMD_'+crypto.randomBytes(12).toString('hex');
- const intentData={symbol:trade.symbol,side:'SELL',type:'MARKET',quantity:qty,quantityPct:pct,clientOrderId};
+ const intentData={symbol:trade.symbol,side:closeSide,type:'MARKET',quantity:qty,quantityPct:pct,accountType,reduceOnly:accountType==='FUTURES',clientOrderId};
  if(mode==='PAPER'){
    await db().query("UPDATE trade_commands SET status='SIMULATED',updated_at=now() WHERE trade_id=$1 AND user_id=$2 AND status='RECEIVED' AND intent=$3",[tradeId,userId,intent]);
    return {mode,simulated:true,action:intent,intent:intentData,verified:true};
@@ -199,7 +225,7 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
  if(mode!=='AUTONOMOUS') throw new Error('Invalid execution mode.');
  if(!risk.autonomous_enabled) throw new Error('AUTONOMOUS mode is disabled in risk settings.');
  if(process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live execution is locked by the server.');
- const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'MARKET',quantity:String(qty),newOrderRespType:'FULL',clientOrderId});
+ const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:closeSide,type:'MARKET',quantity:String(qty),...(accountType==='FUTURES'?{reduceOnly:true}:{}),newOrderRespType:'FULL',clientOrderId});
  const remoteId=String(result.orderId||'');
  let status=String(result.status||'').toUpperCase();
  if(!status&&remoteId){
@@ -213,12 +239,13 @@ export async function executeCloseCommand(userId:string,tradeId:string,intent:Tr
   throw new Error('Exchange rejected the close order ('+status+').');
  }
  if(!status) status='ACKNOWLEDGED';
- const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,trade.exchange_id,trade.symbol,'SELL','MARKET',qty,Number(result.avgPrice||result.price)||null,clientOrderId,remoteId,status,result]);
+ const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,trade.exchange_id,trade.symbol,closeSide,'MARKET',qty,Number(result.avgPrice||result.price)||null,clientOrderId,remoteId,status,result]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'COMMAND_CLOSE_SUBMITTED',result]);
- const closeTradeId=await createTradeForOrder({userId,exchangeId:String(trade.exchange_id),orderId:inserted.rows[0].id,exchangeOrderId:remoteId,clientOrderId,symbol:trade.symbol,side:'SELL',executionMode:mode,quantity:qty,parentTradeId:tradeId});
+ const closeTradeId=await createTradeForOrder({userId,exchangeId:String(trade.exchange_id),orderId:inserted.rows[0].id,exchangeOrderId:remoteId,clientOrderId,symbol:trade.symbol,side:closeSide,executionMode:mode,quantity:qty,parentTradeId:tradeId});
+ const parentNextState=pct>=100?'CLOSING':String(trade.state||'FILLED');
  if(pct>=100) await db().query("UPDATE trades SET state='CLOSING',exit_reason=$1,updated_at=now() WHERE id=$2",[intent,tradeId]);
  await db().query("UPDATE trade_commands SET status='SUBMITTED',updated_at=now() WHERE trade_id=$1 AND user_id=$2 AND status='RECEIVED' AND intent=$3",[tradeId,userId,intent]);
- await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,trade.state,'CLOSING','COMMAND_EXECUTED','DRO_TOOL','Natural-language close command',result]);
+ await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,trade.state,parentNextState,'COMMAND_EXECUTED','DRO_TOOL','Natural-language close command',result]);
  let verification:any=null;
  try{verification=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,remoteId,clientOrderId);await reconcileOrderLifecycle(userId,String(trade.exchange_id),trade.symbol);}catch{}
  await audit({userId,action:intent,exchange:x.record.name,symbol:trade.symbol,orderId:remoteId||clientOrderId,source:'DRO_COMMAND',result:'Command submitted; verification attempted',status});
