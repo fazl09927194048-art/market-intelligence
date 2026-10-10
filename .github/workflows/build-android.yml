@@ -6,6 +6,10 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/build-android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +49,7 @@ jobs:
           test -f android/build.gradle.kts
           test -f android/app/build.gradle.kts
           test -f android/app/src/main/AndroidManifest.xml
+          test -f android/app/src/main/java/com/xxx/superapp/DigitalLabActivity.kt
           find android/app/src/main -maxdepth 6 -type f | sort
 
       - name: Build debug APK and AAB
@@ -70,6 +75,7 @@ jobs:
           retention-days: 30
 
       - name: Publish Android release
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: xXx-DRO-latest
@@ -77,6 +83,7 @@ jobs:
           body: |
             Latest xXx DRO Android debug artifacts.
             Package: com.xxx.superapp
+            Version: 1.1.0 (versionCode 3)
             Target Android: 15 (API 35)
             APK: debug build for direct testing.
             AAB: debug bundle for integration/testing; Play Store production publishing still requires a signing key and release configuration.
@@ -88,4 +95,4 @@ jobs:
           fail_on_unmatched_files: true
           overwrite_files: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
