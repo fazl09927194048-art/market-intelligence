@@ -313,7 +313,7 @@ class DigitalLabActivity : AppCompatActivity() {
                     }
                 }
                 runOnUiThread {
-                    marketRows = fresh; marketDataValid = json.optBoolean("dataValid", false); loading = false
+                    marketRows = fresh; marketDataValid = code in 200..299 && json.optBoolean("dataValid", false); loading = false
                     val warnings = json.optJSONArray("warnings")?.length() ?: 0
                     marketMessage = if (fresh.isNotEmpty()) "دریافت شد • " + json.optString("provider", "market provider") + " • " + fresh.size + " نماد • " + (if (marketDataValid) "داده زنده معتبر" else "داده ناقص/برخی منابع نامعتبر") + " • هشدار: " + warnings
                         else "داده معتبر در دسترس نیست (HTTP " + code + ")"
