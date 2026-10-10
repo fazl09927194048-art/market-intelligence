@@ -117,7 +117,7 @@ class DigitalLabActivity : AppCompatActivity() {
     }
 
     private fun home() {
-        val hero = card("DRO DIGITAL LAB • نسخه 1.1")
+        val hero = card("DRO DIGITAL LAB • نسخه 1.2")
         add(hero, "یک ابزارخانه چندمنظوره برای تحلیل بازار، محاسبه ریسک، بررسی سود و زیان و ثبت معاملات.", 15f, LAB_WHITE, true)
         add(hero, "این نسخه قیمت‌های بازار را از API سایت می‌گیرد و محاسبات را روی خود گوشی انجام می‌دهد. داده ساختگی به‌عنوان قیمت زنده نمایش داده نمی‌شود.", 12f, LAB_MUTED)
         button(hero, "ورود به آزمایشگاه ترید", true) { tab = "lab"; render() }
@@ -271,8 +271,8 @@ class DigitalLabActivity : AppCompatActivity() {
         val c = card("ابزارهای دیجیتال")
         add(c, "این بخش نقطه شروع برای اضافه‌کردن ابزارهای بیشتر به آزمایشگاه است.", 13f, LAB_MUTED)
         button(c, "Phone Control • اتصال گوشی", true) { startActivity(Intent(this, MainActivity::class.java)) }
-        button(c, "تحلیل‌گر و اسکن تصویر DRO", false) { openUrl(serverUrl) }
-        button(c, "باز کردن صفحه تنظیمات سایت", false) { openUrl(serverUrl + "/settings") }
+        button(c, "تحلیل‌گر و اسکن تصویر DRO", false) { startActivity(Intent(this, DROWebsiteActivity::class.java)) }
+        button(c, "تنظیمات اپ و همگام‌سازی سایت", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
         button(c, "باز کردن API وضعیت بازار", false) { openUrl(serverUrl + "/api/market") }
         button(c, "چت مستقیم با DRO", true) { startActivity(Intent(this, DROChatActivity::class.java)) }
         button(c, "تنظیمات و همگام‌سازی", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
