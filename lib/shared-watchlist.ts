@@ -32,7 +32,7 @@ export async function getCustomMarketSymbols(): Promise<string[]> {
   if (!db) return [];
   await ensureSchema(db);
   const result = await db.query<{ symbol: string }>(
-    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 100'
+    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 20'
   );
   return result.rows.map(row => row.symbol);
 }
@@ -45,15 +45,15 @@ export async function addCustomMarketSymbol(symbol: string): Promise<string[]> {
     'SELECT COUNT(*)::text AS count, BOOL_OR(symbol = $1) AS present FROM shared_market_watchlist',
     [symbol]
   );
-  if (Number(existing.rows[0]?.count || 0) >= 100 && !existing.rows[0]?.present) {
-    throw new Error('The shared watchlist is full (100 symbols). Remove an unused symbol before adding another.');
+  if (Number(existing.rows[0]?.count || 0)  >= 20 && !existing.rows[0]?.present) {
+    throw new Error('The shared watchlist is full (20 custom symbols). Remove an unused symbol before adding another.');
   }
   await db.query(
     'INSERT INTO shared_market_watchlist(symbol) VALUES($1) ON CONFLICT(symbol) DO NOTHING',
     [symbol]
   );
   const result = await db.query<{ symbol: string }>(
-    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 100'
+    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 20'
   );
   return result.rows.map(row => row.symbol);
 }
@@ -64,7 +64,7 @@ export async function removeCustomMarketSymbol(symbol: string): Promise<string[]
   await ensureSchema(db);
   await db.query('DELETE FROM shared_market_watchlist WHERE symbol = $1', [symbol]);
   const result = await db.query<{ symbol: string }>(
-    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 100'
+    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 20'
   );
   return result.rows.map(row => row.symbol);
 }
