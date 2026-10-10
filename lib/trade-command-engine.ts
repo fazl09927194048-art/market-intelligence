@@ -68,9 +68,17 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(isLong ? !(stopPrice<current&&takeProfitPrice>current) : !(stopPrice>current&&takeProfitPrice<current)) {
    throw new Error('Protection prices are on the wrong side of the current market and could trigger immediately; refresh the price and set valid SL/TP levels.');
  }
- if(accountType==='FUTURES' && String(x.record.position_mode||'ONE_WAY').toUpperCase().includes('HEDGE')) throw new Error('Hedge-mode Futures protection is not enabled yet; use One-way mode or keep this position in manual protection.');
  const qty=openPositionQuantity(trade);
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No protected position quantity is available.');
+ if(accountType==='FUTURES'){
+  const positionResult=await exchangeManager.positions(x.record.name,x.credentials);
+  const matching=(Array.isArray(positionResult?.positions)?positionResult.positions:[]).filter((v:any)=>String(v?.symbol||'').toUpperCase()===String(trade.symbol).toUpperCase()&&Math.abs(Number(v?.positionAmt)||0)>0);
+  if(matching.length!==1||String(matching[0]?.positionSide||'BOTH').toUpperCase()!=='BOTH') throw new Error('Futures protection currently requires exactly one One-way position for this symbol; Hedge mode or ambiguous positions are blocked.');
+  const amount=Number(matching[0]?.positionAmt);
+  if(!Number.isFinite(amount)||amount===0||(amount<0)!==(!isLong)) throw new Error('Exchange position direction does not match this trade record; reconciliation is required.');
+  const actualQty=Math.abs(amount);
+  if(Math.abs(actualQty-qty)>Math.max(1e-10,actualQty*1e-6)) throw new Error('Exchange position size differs from the trade record; protection is blocked until quantities are reconciled.');
+ }
  const exitSide=isLong?'SELL':'BUY';
  const reduceOnly=accountType==='FUTURES'?{reduceOnly:true}:{};
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
