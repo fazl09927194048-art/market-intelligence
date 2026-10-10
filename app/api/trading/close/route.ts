@@ -56,9 +56,22 @@ export async function POST(req:NextRequest){
     available=n(row?.free);
     if(available<=0) return NextResponse.json({ok:false,error:'No available spot balance to close for '+symbol+'.'},{status:409});
   }
-  const quantity=closeAll?available:Number(requestedQuantity);
+  let quantity=closeAll?available:Number(requestedQuantity);
   if(!Number.isFinite(quantity)||quantity<=0) return NextResponse.json({ok:false,error:'Close quantity must be positive.'},{status:400});
   if(quantity>available) return NextResponse.json({ok:false,error:'Requested close quantity exceeds the available balance or position.'},{status:409});
+  if(accountType==='FUTURES'){
+   const marketData=await exchangeManager.markets(x.record.name,x.credentials);
+   const market=(Array.isArray(marketData?.symbols)?marketData.symbols:[]).find((v:any)=>String(v?.symbol||'').toUpperCase()===symbol);
+   if(!market) return NextResponse.json({ok:false,error:'Futures market metadata is unavailable for '+symbol+'; close order was not submitted.'},{status:503});
+   const filters=Array.isArray(market.filters)?market.filters:[];
+   const marketLot=filters.find((v:any)=>v?.filterType==='MARKET_LOT_SIZE'&&Number(v?.stepSize)>0);
+   const lot=filters.find((v:any)=>v?.filterType==='LOT_SIZE'&&Number(v?.stepSize)>0);
+   const step=Number(marketLot?.stepSize||lot?.stepSize||0);
+   const minQty=Number(marketLot?.minQty||lot?.minQty||0);
+   if(step>0) quantity=Math.floor((quantity+step*1e-10)/step)*step;
+   quantity=Number(quantity.toPrecision(12));
+   if(!Number.isFinite(quantity)||quantity<=0||(minQty>0&&quantity<minQty)) return NextResponse.json({ok:false,error:'Close quantity is below the Futures market minimum or does not match the exchange quantity step; no order was submitted.'},{status:400});
+  }
   const intent={exchangeId,symbol,side:orderSide,type:'MARKET',quantity,reason:String(b.reason||'DRO user command'),closeAll};
   const mode=String(risk.execution_mode||'PAPER').toUpperCase();
   if(mode==='PAPER') return NextResponse.json({ok:true,mode:'PAPER',action:'CLOSE_POSITION',intent,simulated:true});
