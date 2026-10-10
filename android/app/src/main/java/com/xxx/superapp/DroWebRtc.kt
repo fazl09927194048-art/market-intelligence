@@ -30,6 +30,24 @@ class DroWebRtc(
     private var turnServers: List<PeerConnection.IceServer> = emptyList()
     private var restartCount = 0
     private var pollingStarted = false
+    private val pendingRemoteCandidates = java.util.Collections.synchronizedList(mutableListOf<IceCandidate>())
+
+    private fun addOrQueueRemoteCandidate(candidate: IceCandidate) {
+        val current = peer
+        if (current?.remoteDescription != null) current.addIceCandidate(candidate)
+        else pendingRemoteCandidates.add(candidate)
+    }
+
+    private fun flushPendingRemoteCandidates() {
+        val current = peer ?: return
+        if (current.remoteDescription == null) return
+        val queued = synchronized(pendingRemoteCandidates) {
+            val copy = pendingRemoteCandidates.toList()
+            pendingRemoteCandidates.clear()
+            copy
+        }
+        queued.forEach { current.addIceCandidate(it) }
+    }
 
     fun start() {
         PeerConnectionFactory.initialize(
@@ -200,10 +218,11 @@ class DroWebRtc(
                     val payload = signals.getJSONObject(i).optJSONObject("payload") ?: continue
                     val sdp = payload.optJSONObject("sdp")
                     if (sdp != null && sdp.optString("type") == "answer") {
-                        peer?.setRemoteDescription(SimpleSdpObserver { onState("ANSWER_SET") },
+                        peer?.setRemoteDescription(SimpleSdpObserver { onState("ANSWER_SET"); flushPendingRemoteCandidates() },
                             SessionDescription(SessionDescription.Type.ANSWER, sdp.optString("sdp")))
                     } else if (sdp != null && sdp.optString("type") == "offer") {
                         peer?.setRemoteDescription(SimpleSdpObserver {
+                            flushPendingRemoteCandidates()
                             peer?.createAnswer(object : SdpObserver {
                                 override fun onCreateSuccess(answer: SessionDescription?) {
                                     if (answer == null) return
@@ -223,7 +242,7 @@ class DroWebRtc(
                         }, SessionDescription(SessionDescription.Type.OFFER, sdp.optString("sdp")))
                     }
                     val c = payload.optJSONObject("candidate")
-                    if (c != null) peer?.addIceCandidate(IceCandidate(
+                    if (c != null) addOrQueueRemoteCandidate(IceCandidate(
                         c.optString("sdpMid"), c.optInt("sdpMLineIndex"), c.optString("candidate")))
                 }
             } catch (_: Exception) {}
