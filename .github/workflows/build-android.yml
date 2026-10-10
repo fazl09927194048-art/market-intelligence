@@ -83,7 +83,7 @@ jobs:
           body: |
             Latest xXx DRO Android debug artifacts.
             Package: com.xxx.superapp
-            Version: 1.1.0 (versionCode 3)
+            Version: 1.2.0 (versionCode 4)
             Target Android: 15 (API 35)
             APK: debug build for direct testing.
             AAB: debug bundle for integration/testing; Play Store production publishing still requires a signing key and release configuration.
