@@ -41,17 +41,29 @@ export async function addCustomMarketSymbol(symbol: string): Promise<string[]> {
   const db = getPool();
   if (!db) throw new Error('Shared database is not configured; set DATABASE_URL to synchronize custom symbols across devices.');
   await ensureSchema(db);
-  const existing = await db.query<{ count: string; present: boolean }>(
-    'SELECT COUNT(*)::text AS count, BOOL_OR(symbol = $1) AS present FROM shared_market_watchlist',
-    [symbol]
-  );
-  if (Number(existing.rows[0]?.count || 0)  >= 20 && !existing.rows[0]?.present) {
-    throw new Error('The shared watchlist is full (20 custom symbols). Remove an unused symbol before adding another.');
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    // Serialize add operations so concurrent requests cannot exceed the 20-symbol limit.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('shared_market_watchlist_limit'))");
+    const existing = await client.query<{ count: string; present: boolean }>(
+      'SELECT COUNT(*)::text AS count, COALESCE(BOOL_OR(symbol = $1), FALSE) AS present FROM shared_market_watchlist',
+      [symbol]
+    );
+    if (Number(existing.rows[0]?.count || 0) >= 20 && !existing.rows[0]?.present) {
+      throw new Error('The shared watchlist is full (20 custom symbols). Remove an unused symbol before adding another.');
+    }
+    await client.query(
+      'INSERT INTO shared_market_watchlist(symbol) VALUES($1) ON CONFLICT(symbol) DO NOTHING',
+      [symbol]
+    );
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
   }
-  await db.query(
-    'INSERT INTO shared_market_watchlist(symbol) VALUES($1) ON CONFLICT(symbol) DO NOTHING',
-    [symbol]
-  );
   const result = await db.query<{ symbol: string }>(
     'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 20'
   );
