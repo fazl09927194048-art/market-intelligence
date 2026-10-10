@@ -49,3 +49,7 @@
 .watchlistAddForm button{border:0;border-radius:10px;padding:10px 16px;background:var(--accent,#39d98a);color:#07100c;font-weight:700;cursor:pointer}
 .watchlistAddForm button:disabled{opacity:.55;cursor:not-allowed}
 .watchlistAddForm input:focus-visible,.watchlistAddForm button:focus-visible{outline:2px solid var(--accent,#39d98a);outline-offset:2px}
+.customWatchlistChips{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 14px}
+.customWatchlistChip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line,#273244);border-radius:999px;padding:4px 8px 4px 11px;background:var(--panel,#111722);font-size:12px}
+.customWatchlistChip button{border:0;border-radius:50%;width:22px;height:22px;line-height:18px;background:transparent;color:inherit;font-size:18px;cursor:pointer}
+.customWatchlistChip button:disabled{opacity:.5;cursor:wait}
