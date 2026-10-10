@@ -48,6 +48,7 @@ class DigitalLabActivity : AppCompatActivity() {
     private var marketRows: List<LabMarket> = emptyList()
     private var loading = false
     private var marketMessage = "برای دریافت قیمت‌ها، رفرش را بزن."
+    private var marketFilter = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -151,11 +152,15 @@ class DigitalLabActivity : AppCompatActivity() {
         val c = card("MARKET WATCH • پایش بازار")
         add(c, "منبع واحد: API مشترک FLI/DRO. هر نمادی که سرور در /api/market برگرداند بدون انتشار APK در این فهرست ظاهر می‌شود.", 12f, LAB_MUTED)
         button(c, if (loading) "در حال دریافت…" else "رفرش بازار", true, loading) { refreshMarkets() }
+        val search = field(c, "جست‌وجوی ارز", "BTC / ETH / SUI", marketFilter, InputType.TYPE_CLASS_TEXT)
+        button(c, "اعمال جست‌وجو", false) { marketFilter = search.text.toString().trim(); render() }
         add(c, marketMessage, 12f, if (marketRows.isEmpty()) LAB_GOLD else LAB_GREEN)
+        val visibleMarkets = marketRows.filter { marketFilter.isBlank() || it.symbol.contains(marketFilter, true) || it.name.contains(marketFilter, true) }
         if (marketRows.isEmpty()) {
             add(c, "در حال حاضر داده معتبر برای نمایش نداریم. اینترنت را بررسی و دوباره تلاش کن.", 13f, LAB_WHITE)
         } else {
-            marketRows.forEach { m ->
+            if (visibleMarkets.isEmpty()) add(c, "ارزی با این عبارت پیدا نشد.", 13f, LAB_MUTED)
+            visibleMarkets.forEach { m ->
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
                     setPadding(dp(10), dp(10), dp(10), dp(10)); setBackgroundColor(LAB_ALT)
