@@ -62,8 +62,9 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(isLong ? !(stopPrice<entry&&takeProfitPrice>entry) : !(stopPrice>entry&&takeProfitPrice<entry)) {
    throw new Error('Invalid protection direction: long positions need SL below entry and TP above entry; short positions need SL above entry and TP below entry.');
  }
- const current=Number(trade.current_price);
- if(!Number.isFinite(current)||current<=0) throw new Error('A fresh current market price is required before placing live protection. Refresh market data and retry.');
+ let current=0;
+ try{const ticker=await exchangeManager.ticker(x.record.name,x.credentials,String(trade.symbol));current=Number(ticker?.lastPrice??ticker?.price);}catch{throw new Error('Could not fetch a live exchange price; protection was not submitted.');}
+ if(!Number.isFinite(current)||current<=0) throw new Error('A valid live exchange price is required before placing protection.');
  if(isLong ? !(stopPrice<current&&takeProfitPrice>current) : !(stopPrice>current&&takeProfitPrice<current)) {
    throw new Error('Protection prices are on the wrong side of the current market and could trigger immediately; refresh the price and set valid SL/TP levels.');
  }
@@ -85,7 +86,26 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  }
  let tp:any=null;
  try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
- catch(firstError){try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}catch{try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw firstError;}}
+ catch(firstError){
+  try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}
+  catch{
+   let stopCancelled=false;
+   try{
+    if(stop?.orderId){
+     const cancelled=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);
+     stopCancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(cancelled?.status||'').toUpperCase());
+     if(!stopCancelled){const verify=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);stopCancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(verify?.status||'').toUpperCase());}
+    }
+   }catch{}
+   if(!stopCancelled){
+    await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,updated_at) VALUES($1,$2,NULL,$3,$4,'RECONCILIATION_REQUIRED',now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,status='RECONCILIATION_REQUIRED',updated_at=now()",[tradeId,String(stop?.orderId||''),stopPrice,takeProfitPrice]);
+    await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1",[tradeId]);
+    await audit({userId,action:'PROTECTION_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:String(stop?.orderId||stopClient),source:'DRO_TOOL',result:'Take-profit submission failed and stop cancellation could not be confirmed.',status:'RECONCILIATION_REQUIRED'});
+    throw new Error('Take-profit submission failed and stop-loss cancellation could not be confirmed. The exchange may still have an active stop; manual reconciliation is required.');
+   }
+   throw firstError;
+  }
+ }
  const stopStatus=String(stop?.status||'').toUpperCase(), tpStatus=String(tp?.status||'').toUpperCase();
  const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW';
  const verifiedTp=tpStatus==='NEW'||tpStatus==='PENDING_NEW';
