@@ -124,6 +124,7 @@ class DigitalLabActivity : AppCompatActivity() {
         button(hero, "مشاهده بازار", false) { tab = "markets"; render(); refreshMarkets() }
         button(hero, "گفت‌وگوی مستقیم با DRO", true) { startActivity(Intent(this, DROChatActivity::class.java)) }
         button(hero, "تنظیمات و همگام‌سازی سایت", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
+        button(hero, "نمای زنده سایت داخل اپ", false) { startActivity(Intent(this, DROWebsiteActivity::class.java)) }
 
         val market = card("وضعیت بازار")
         add(market, marketMessage, 13f, if (marketRows.isEmpty()) LAB_GOLD else LAB_GREEN)
@@ -275,6 +276,7 @@ class DigitalLabActivity : AppCompatActivity() {
         button(c, "باز کردن API وضعیت بازار", false) { openUrl(serverUrl + "/api/market") }
         button(c, "چت مستقیم با DRO", true) { startActivity(Intent(this, DROChatActivity::class.java)) }
         button(c, "تنظیمات و همگام‌سازی", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
+        button(c, "نمای زنده سایت داخل اپ", false) { startActivity(Intent(this, DROWebsiteActivity::class.java)) }
         val privacy = card("ایمنی و شفافیت")
         add(privacy, "• این برنامه در این نسخه سفارش صرافی ارسال نمی‌کند.\n• قیمت‌ها فقط از پاسخ API دریافت می‌شوند.\n• محاسبات سود و زیان تقریبی‌اند و هزینه‌ها را لحاظ نمی‌کنند.\n• توکن و مجوزهای Phone Control در صفحه جداگانه مدیریت می‌شوند.\n• قبل از استفاده از هر قابلیت کنترل گوشی، مجوزهای اندروید را بررسی کن.", 12f, LAB_MUTED)
     }
