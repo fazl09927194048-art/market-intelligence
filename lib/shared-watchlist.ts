@@ -41,6 +41,13 @@ export async function addCustomMarketSymbol(symbol: string): Promise<string[]> {
   const db = getPool();
   if (!db) throw new Error('Shared database is not configured; set DATABASE_URL to synchronize custom symbols across devices.');
   await ensureSchema(db);
+  const existing = await db.query<{ count: string; present: boolean }>(
+    'SELECT COUNT(*)::text AS count, BOOL_OR(symbol = $1) AS present FROM shared_market_watchlist',
+    [symbol]
+  );
+  if (Number(existing.rows[0]?.count || 0) >= 100 && !existing.rows[0]?.present) {
+    throw new Error('The shared watchlist is full (100 symbols). Remove an unused symbol before adding another.');
+  }
   await db.query(
     'INSERT INTO shared_market_watchlist(symbol) VALUES($1) ON CONFLICT(symbol) DO NOTHING',
     [symbol]
