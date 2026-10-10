@@ -7,11 +7,13 @@ import {ensureExchangeSchema,db} from '@/lib/exchange/db';
 import {createTradeForOrder,reconcileOrderLifecycle} from '@/lib/trade-lifecycle';
 
 export const dynamic='force-dynamic';
+function sameOrigin(req:NextRequest){const origin=req.headers.get('origin');if(!origin)return true;try{return new URL(origin).host.toLowerCase()===req.nextUrl.host.toLowerCase();}catch{return false;}}
 
 function n(v:unknown){const x=Number(v);return Number.isFinite(x)?x:0}
 
 export async function POST(req:NextRequest){
  try{
+  if(!sameOrigin(req)) return NextResponse.json({ok:false,error:'Cross-origin trading requests are blocked.'},{status:403});
   const userId=await getSessionUserId();
   const b=await req.json();
   let exchangeId=String(b.exchangeId||'');
