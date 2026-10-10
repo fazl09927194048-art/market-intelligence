@@ -91,6 +91,7 @@ export async function POST(req:NextRequest){
   const count=await db().query("SELECT COUNT(*)::int AS n FROM orders WHERE user_id=$1 AND created_at>=CURRENT_DATE",[userId]);
   if(Number(count.rows[0]?.n||0)>=Number(risk.max_trades)) return NextResponse.json({ok:false,error:'Daily trade limit reached ('+risk.max_trades+').'},{status:403});
   const clientOrderId='FLI_'+crypto.randomBytes(12).toString('hex'); const p:any={symbol,side,type,clientOrderId};
+  if(accountType==='FUTURES') p.leverage=Number(b.leverage);
   if(quantity!==undefined)p.quantity=quantity; if(quoteQuantity!==undefined)p.quoteOrderQty=quoteQuantity;
   if(type==='LIMIT'){p.timeInForce='GTC';p.price=price;}
   if(mode==='PAPER'){
