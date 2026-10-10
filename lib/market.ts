@@ -127,12 +127,17 @@ async function cryptoCompare(): Promise<MarketSnapshot[]> {
 async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, warnings: string[], health: Record<string, 'healthy' | 'degraded' | 'down'>) {
   try {
     const markets = await fn();
-    if (markets.length >= 6) {
+    if (markets.length === ASSETS.length) {
       health[name] = 'healthy';
       return markets;
     }
+    if (markets.length > 0) {
+      health[name] = 'degraded';
+      warnings.push(`${name} returned partial validated data (${markets.length}/${ASSETS.length}).`);
+      return markets;
+    }
     health[name] = 'degraded';
-    warnings.push(`${name} returned incomplete validated data (${markets.length}/${ASSETS.length}).`);
+    warnings.push(`${name} returned no validated market rows.`);
   } catch (error) {
     health[name] = 'down';
     warnings.push(`${name} unavailable: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -143,8 +148,9 @@ async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, 
 export async function getMarkets(): Promise<MarketProviderResult> {
   const warnings: string[] = [];
   const sourceHealth: Record<string, 'healthy' | 'degraded' | 'down'> = {};
+  const merged = new Map<string, MarketSnapshot>();
 
-  // Provider order is deliberate: public, keyless sources first. We never synthesize missing values.
+  // Merge validated rows from keyless sources so one partial provider cannot hide supported assets.
   const providers: Array<[string, () => Promise<MarketSnapshot[]>]> = [
     ['CoinGecko', coinGecko],
     ['Binance', binance],
@@ -152,11 +158,17 @@ export async function getMarkets(): Promise<MarketProviderResult> {
   ];
 
   for (const [name, fn] of providers) {
-    const markets = await fetchProvider(name, fn, warnings, sourceHealth);
-    if (markets.length >= 6) {
-      return { markets, provider: name, warnings, fetchedAt: new Date().toISOString(), sourceHealth };
-    }
+    const rows = await fetchProvider(name, fn, warnings, sourceHealth);
+    for (const row of rows) if (!merged.has(row.symbol)) merged.set(row.symbol, row);
+    if (merged.size === ASSETS.length) break;
   }
 
-  return { markets: [], provider: 'unavailable', warnings, fetchedAt: new Date().toISOString(), sourceHealth };
+  const markets = ASSETS.map(([symbol]) => merged.get(symbol)).filter((row): row is MarketSnapshot => Boolean(row));
+  return {
+    markets,
+    provider: markets.length ? [...new Set(markets.map(row => row.source))].join(' + ') : 'unavailable',
+    warnings,
+    fetchedAt: new Date().toISOString(),
+    sourceHealth,
+  };
 }
