@@ -291,7 +291,8 @@ class DigitalLabActivity : AppCompatActivity() {
         if (loading) return
         loading = true
         marketMessage = "در حال دریافت داده از سرور…"
-        render()
+        // Do not rebuild the journal while a user may be typing an unsaved draft.
+        if (tab != "journal") render()
         worker.execute {
             var conn: HttpURLConnection? = null
             try {
@@ -316,14 +317,16 @@ class DigitalLabActivity : AppCompatActivity() {
                     val warnings = json.optJSONArray("warnings")?.length() ?: 0
                     marketMessage = if (fresh.isNotEmpty()) "دریافت شد • " + json.optString("provider", "market provider") + " • " + fresh.size + " نماد • " + (if (marketDataValid) "داده زنده معتبر" else "داده ناقص/برخی منابع نامعتبر") + " • هشدار: " + warnings
                         else "داده معتبر در دسترس نیست (HTTP " + code + ")"
-                    updateStatus(); render()
+                    updateStatus()
+                    if (tab != "journal") render()
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     loading = false
                     marketDataValid = false
                     marketMessage = "اتصال ناموفق: " + (e.message ?: "خطای شبکه")
-                    updateStatus(); render()
+                    updateStatus()
+                    if (tab != "journal") render()
                 }
             } finally { conn?.disconnect() }
         }
