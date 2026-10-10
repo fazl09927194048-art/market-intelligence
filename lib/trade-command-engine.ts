@@ -134,6 +134,7 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
   try{if(tp?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(tp.orderId));}catch{}
   throw new Error('Exchange did not confirm both protection orders as active; position was not marked PROTECTED.');
  }
+ try{
  const sp=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,'STOP_LOSS_LIMIT',$5,$6,$7,$8,$9,$10) RETURNING id",[userId,trade.exchange_id,trade.symbol,exitSide,qty,stopPrice,stopClient,String(stop?.orderId||''),stopStatus,stop]);
  const tpOrder=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,'TAKE_PROFIT_LIMIT',$5,$6,$7,$8,$9,$10) RETURNING id",[userId,trade.exchange_id,trade.symbol,exitSide,qty,takeProfitPrice,tpClient,String(tp?.orderId||''),tpStatus,tp]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5),($6,$2,$7,$8,$9)",[sp.rows[0].id,'CREATED',stopStatus,'PROTECTION_SUBMITTED',stop,tpOrder.rows[0].id,tpStatus,'PROTECTION_SUBMITTED',tp]);
@@ -141,6 +142,21 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  await db().query("UPDATE trades SET stop_price=$1,take_profit_price=$2,state='PROTECTED',updated_at=now() WHERE id=$3",[stopPrice,takeProfitPrice,tradeId]);
  await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[tradeId,trade.state,'PROTECTED','PROTECTION_PLACED','DRO_TOOL','Stop-loss and take-profit orders submitted']);
  return {mode,protected:true,stop,takeProfit:tp,verified:true};
+ }catch(persistError){
+  let cleanupConfirmed=true;
+  for(const [order,clientId] of [[stop,stopClient],[tp,tpClient]] as any[]){
+   let cancelled=false;
+   try{const result=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(order?.orderId||'')||undefined,clientId);cancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(result?.status||'').toUpperCase());}catch{}
+   if(!cancelled){try{const status=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(order?.orderId||'')||undefined,clientId);cancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(status?.status||status?.orderStatus||'').toUpperCase());}catch{}}
+   if(!cancelled) cleanupConfirmed=false;
+  }
+  try{
+   await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,updated_at) VALUES($1,$2,$3,$4,$5,'RECONCILIATION_REQUIRED',now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,take_profit_order_id=EXCLUDED.take_profit_order_id,status='RECONCILIATION_REQUIRED',updated_at=now()",[tradeId,String(stop?.orderId||''),String(tp?.orderId||''),stopPrice,takeProfitPrice]);
+   await db().query("UPDATE trades SET state=$1,updated_at=now() WHERE id=$2",[cleanupConfirmed?'PROTECTION_PENDING':'RECONCILIATION_REQUIRED',tradeId]);
+   await audit({userId,action:'PROTECTION_PERSISTENCE_FAILED',exchange:x.record.name,symbol:trade.symbol,orderId:String(stop?.orderId||stopClient),source:'DRO_TOOL',result:cleanupConfirmed?'DB persistence failed; exchange protection cleanup confirmed.':'DB persistence failed and one or more exchange orders may remain active.',status:cleanupConfirmed?'PROTECTION_PENDING':'RECONCILIATION_REQUIRED'});
+  }catch{}
+  throw new Error(cleanupConfirmed?'Protection orders could not be saved locally; exchange cleanup was attempted and the trade needs reconciliation before retry.':'Protection orders may still be active but local persistence failed. Immediate exchange reconciliation is required; do not retry protection blindly.');
+ }
 }
 export async function executeStopAdjustmentCommand(userId:string,tradeId:string,intent:Extract<TradeIntent,'MOVE_STOP_TO_BREAKEVEN'|'TIGHTEN_STOP'>,requestedStop?:number){
  await ensureExchangeSchema();
