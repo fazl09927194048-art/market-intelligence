@@ -27,6 +27,20 @@ function validTransition(previous:string,next:string){
  return STATE_RANK[next]>=STATE_RANK[previous]||next==='CLOSING';
 }
 
+async function cancelProtectionOrderSet(exchangeName:string,credentials:any,symbol:string,ids:any[]){
+ const remaining:string[]=[];
+ for(const value of ids){
+  const id=String(value||''); if(!id) continue;
+  let status='';
+  try{const result=await exchangeManager.cancel(exchangeName,credentials,symbol,id);status=String(result?.status||'').toUpperCase();}catch{}
+  if(!['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(status)){
+   try{const result=await exchangeManager.status(exchangeName,credentials,symbol,id);status=String(result?.status||result?.orderStatus||'').toUpperCase();}catch{}
+  }
+  if(!['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(status)) remaining.push(id);
+ }
+ return {confirmed:remaining.length===0,remaining};
+}
+
 export async function reconcileOrderLifecycle(userId:string,exchangeId:string,symbol?:string):Promise<LifecycleSync>{
  await ensureExchangeSchema();
  const x=await getExchange(userId,exchangeId);
@@ -96,31 +110,27 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
         : 0;
        const nextRealized=priorRealized+realizedDelta;
        await db().query("UPDATE trades SET closed_quantity=$1,remaining_quantity=$2,realized_pnl=$3,unrealized_pnl=CASE WHEN $4<=1e-12 THEN 0 ELSE unrealized_pnl END,state=$5,closed_at=CASE WHEN $5='CLOSED' THEN COALESCE(closed_at,now()) ELSE closed_at END,updated_at=now() WHERE id=$6",[nextClosed,remainingPosition,nextRealized,remainingPosition,nextParentState,row.parent_trade_id]);
-       if(nextParentState!==previousParentState){
+       if(nextParentState!==previousParentState||deltaFilled>0){
         await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason) VALUES($1,$2,$3,$4,$5,$6)",[row.parent_trade_id,previousParentState,nextParentState,'POSITION_CLOSE_RECONCILED','system',fullyClosed?'Closing order fully filled on exchange':'Closing order partially filled on exchange']);
         events++;
         if(!fullyClosed){
          const protection=await db().query("SELECT stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[row.parent_trade_id]);
          const pr=protection.rows[0];
          if(pr){
-          for(const siblingId of [pr.stop_order_id,pr.take_profit_order_id]){
-           if(!siblingId) continue;
-           try{await exchangeManager.cancel(x.record.name,x.credentials,row.symbol,String(siblingId));}catch{}
-          }
-          await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',stop_order_id=NULL,take_profit_order_id=NULL,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id]);
-          await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[row.parent_trade_id]);
-          await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[row.parent_trade_id,userId,'Partial close filled: previous protection orders were canceled and protection must be re-established for the remaining quantity.','PARTIAL_PROTECTION:'+row.parent_trade_id+':'+String(nextClosed)]);
+          const cancellation=await cancelProtectionOrderSet(x.record.name,x.credentials,row.symbol,[pr.stop_order_id,pr.take_profit_order_id]);
+          await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',stop_order_id=CASE WHEN $2 THEN NULL ELSE stop_order_id END,take_profit_order_id=CASE WHEN $2 THEN NULL ELSE take_profit_order_id END,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id,cancellation.confirmed]);
+          await db().query("UPDATE trades SET state=CASE WHEN state='CLOSED' THEN state ELSE 'PROTECTION_PENDING' END,updated_at=now() WHERE id=$1 AND state NOT IN ('CANCELED','CANCELLED','FAILED','REJECTED')",[row.parent_trade_id]);
+          const alertMessage=cancellation.confirmed?'Partial close filled: prior protection orders were canceled; protection must be re-established for the remaining quantity.':'CRITICAL: Partial close filled but cancellation of one or more prior protection orders could not be confirmed. Do not submit duplicate protection until reconciled.';
+          await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[row.parent_trade_id,userId,alertMessage,'PARTIAL_PROTECTION:'+row.parent_trade_id+':'+String(nextClosed)]);
          }
         }
         if(nextParentState==='CLOSED'){
          const protection=await db().query("SELECT stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[row.parent_trade_id]);
          const pr=protection.rows[0];
          if(pr){
-          for(const siblingId of [pr.stop_order_id,pr.take_profit_order_id]){
-           if(!siblingId) continue;
-           try{await exchangeManager.cancel(x.record.name,x.credentials,row.symbol,String(siblingId));}catch{}
-          }
-          await db().query("UPDATE trade_protection SET status='CLOSED',updated_at=now() WHERE trade_id=$1",[row.parent_trade_id]);
+          const cancellation=await cancelProtectionOrderSet(x.record.name,x.credentials,row.symbol,[pr.stop_order_id,pr.take_profit_order_id]);
+          await db().query("UPDATE trade_protection SET status=$2,stop_order_id=CASE WHEN $3 THEN stop_order_id ELSE NULL END,take_profit_order_id=CASE WHEN $3 THEN take_profit_order_id ELSE NULL END,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id,cancellation.confirmed?'CLOSED':'RECONCILIATION_REQUIRED',cancellation.confirmed]);
+          if(!cancellation.confirmed) await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[row.parent_trade_id,userId,'Position closed in the database, but exchange protection cancellation could not be confirmed. Verify the exchange immediately.','CLOSED_PROTECTION:'+row.parent_trade_id]);
          }
          await finalizeTradeOutcome(userId,row.parent_trade_id);
         }
