@@ -9,6 +9,7 @@ import {createTradeForOrder} from '@/lib/trade-lifecycle';
 import {calculateDynamicRisk} from '@/lib/dynamic-risk-engine';
 export const dynamic='force-dynamic';
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
+function requestedSideForOrder(side:string){return side==='BUY'?'LONG':'SHORT'}
 export async function POST(req:NextRequest){
  try{
   const userId=await getSessionUserId(); const b=await req.json();
@@ -25,11 +26,6 @@ export async function POST(req:NextRequest){
    const cycle=await runIntelligenceCycle(symbol, String(b.interval||'15m')); intelligence=cycle;
    const plan=cycle.tradePlan;
    const requestedSide=side==='BUY'?'LONG':'SHORT';
-   // This adapter uses Binance Spot (/api/v3/order), not USD-M futures. A SELL cannot open a true short.
-   // Require the dedicated balance-aware close flow for autonomous exits; never mislabel spot sells as shorts.
-   if(requestedSide==='SHORT') {
-    return NextResponse.json({ok:false,error:'DRO autonomous short entries are disabled: the connected Binance adapter supports Spot trading only, not futures. Use the close-position flow to sell an existing spot holding, or add a separately audited futures adapter first.',droGuard:{status:'BLOCKED',reason:'SPOT_ADAPTER_DOES_NOT_SUPPORT_SHORTS'}},{status:409});
-   }
    const confidence=Number(plan?.confidence||0);
    const rr=Number(plan?.riskReward||0);
    const entry=Number(plan?.entry);
@@ -56,6 +52,17 @@ export async function POST(req:NextRequest){
   if(!['PAPER','CONFIRM','AUTONOMOUS'].includes(mode)) return NextResponse.json({ok:false,error:'Invalid execution mode.'},{status:500});
   if(Array.isArray(risk.allowed_symbols)&&risk.allowed_symbols.length&&!risk.allowed_symbols.includes(symbol)) return NextResponse.json({ok:false,error:'Symbol is blocked by the active risk policy.'},{status:403});
   const x=await getExchange(userId,exchangeId);
+  const accountType=String(x.record.account_type||'SPOT').toUpperCase();
+  if(droGuard && requestedSideForOrder(side)==='SHORT' && accountType!=='FUTURES') {
+    return NextResponse.json({ok:false,error:'Opening a short requires a Futures connection. Spot SELL orders only sell owned assets.',droGuard:{status:'BLOCKED',reason:'SPOT_ADAPTER_DOES_NOT_SUPPORT_SHORTS'}},{status:409});
+  }
+  if(accountType==='FUTURES') {
+    const leverage=num(b.leverage);
+    if(leverage===undefined || !Number.isInteger(leverage) || leverage<1 || leverage>Number(risk.max_leverage)) {
+      return NextResponse.json({ok:false,error:'For Futures, provide an integer leverage from 1 up to the configured max_leverage ('+risk.max_leverage+').',riskLimit:Number(risk.max_leverage)},{status:400});
+    }
+    b.leverage=leverage;
+  }
   if(Array.isArray(risk.allowed_exchanges)&&risk.allowed_exchanges.length&&!risk.allowed_exchanges.includes(x.record.name)) return NextResponse.json({ok:false,error:'Exchange is blocked by the active risk policy.'},{status:403});
   let effectivePrice=price;
   if(droGuard?.entry && type==='MARKET') effectivePrice=Number(droGuard.entry);
