@@ -40,7 +40,7 @@ const adapter: ExchangeAdapter = {
     try {
       const a = await request(c, endpoint(c, '/api/v3/account', '/fapi/v2/account'), 'GET', {}, true);
       const permissions: ExchangePermissions = {
-        marketData: true, accountRead: true, trading: c.accountType === 'FUTURES' ? true : Boolean(a?.canTrade),
+        marketData: true, accountRead: true, trading: Boolean(a?.canTrade),
         withdrawals: c.accountType === 'FUTURES' ? false : Boolean(a?.canWithdraw),
         raw: { canTrade: a?.canTrade, canWithdraw: a?.canWithdraw, accountType: c.accountType }
       };
@@ -66,8 +66,14 @@ const adapter: ExchangeAdapter = {
     return { accountType: c.accountType, positions: [], note: 'Spot positions are represented by asset balances.' };
   },
   async createOrder(c, p) {
+    // Binance REST uses newClientOrderId on order submission; clientOrderId is our internal adapter field.
+    const normalized = { ...p } as Record<string, unknown>;
+    if (normalized.clientOrderId !== undefined) {
+      normalized.newClientOrderId = normalized.clientOrderId;
+      delete normalized.clientOrderId;
+    }
     if (c.accountType === 'FUTURES') {
-      const payload = { ...p };
+      const payload = { ...normalized };
       // Spot quoteOrderQty is not a Futures order parameter.
       if (payload.quoteOrderQty !== undefined) throw new Error('quoteOrderQty is Spot-only; Futures requires an explicit quantity.');
       const requestedLeverage = payload.leverage;
@@ -80,7 +86,7 @@ const adapter: ExchangeAdapter = {
       }
       return request(c, '/fapi/v1/order', 'POST', payload, true);
     }
-    return request(c, '/api/v3/order', 'POST', p, true);
+    return request(c, '/api/v3/order', 'POST', normalized, true);
   },
   async cancelOrder(c, s, o, cid) { return request(c, endpoint(c, '/api/v3/order', '/fapi/v1/order'), 'DELETE', { symbol: s.toUpperCase(), orderId: o, origClientOrderId: cid }, true); },
   async getOrderStatus(c, s, o, cid) { return request(c, endpoint(c, '/api/v3/order', '/fapi/v1/order'), 'GET', { symbol: s.toUpperCase(), orderId: o, origClientOrderId: cid }, true); }
