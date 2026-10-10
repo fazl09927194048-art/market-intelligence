@@ -131,7 +131,7 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
          const pr=protection.rows[0];
          if(pr){
           const cancellation=await cancelProtectionOrderSet(x.record.name,x.credentials,row.symbol,[pr.stop_order_id,pr.take_profit_order_id]);
-          await db().query("UPDATE trade_protection SET status=$2,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id,cancellation.confirmed?'CLOSED':'RECONCILIATION_REQUIRED',cancellation.confirmed]);
+          await db().query("UPDATE trade_protection SET status=$2,updated_at=now() WHERE trade_id=$1",[row.parent_trade_id,cancellation.confirmed?'CLOSED':'RECONCILIATION_REQUIRED']);
           if(!cancellation.confirmed) await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[row.parent_trade_id,userId,'Position closed in the database, but exchange protection cancellation could not be confirmed. Verify the exchange immediately.','CLOSED_PROTECTION:'+row.parent_trade_id]);
          }
          await finalizeTradeOutcome(userId,row.parent_trade_id);
