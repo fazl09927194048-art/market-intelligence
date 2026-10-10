@@ -8,12 +8,16 @@ import {runIntelligenceCycle} from '@/lib/intelligence-loop';
 import {createTradeForOrder} from '@/lib/trade-lifecycle';
 import {calculateDynamicRisk} from '@/lib/dynamic-risk-engine';
 export const dynamic='force-dynamic';
+function sameOrigin(req:NextRequest){const origin=req.headers.get('origin');if(!origin)return true;try{return new URL(origin).host.toLowerCase()===req.nextUrl.host.toLowerCase();}catch{return false;}}
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
+function requestedSideForOrder(side:string){return side==='BUY'?'LONG':'SHORT'}
 export async function POST(req:NextRequest){
  try{
+  if(!sameOrigin(req)) return NextResponse.json({ok:false,error:'Cross-origin trading requests are blocked.'},{status:403});
   const userId=await getSessionUserId(); const b=await req.json();
   const exchangeId=String(b.exchangeId||''), symbol=String(b.symbol||'').toUpperCase(), side=String(b.side||'').toUpperCase(), type=String(b.type||'MARKET').toUpperCase();
   const quantity=num(b.quantity), quoteQuantity=num(b.quoteOrderQty), price=num(b.price);
+  if(quantity!==undefined&&quantity>0&&quoteQuantity!==undefined&&quoteQuantity>0) return NextResponse.json({ok:false,error:'Provide either quantity or quoteOrderQty, not both; mixing them can misstate risk and cause exchange rejection.'},{status:400});
   if(!exchangeId||!/^[A-Z0-9]{2,20}$/.test(symbol)||!['BUY','SELL'].includes(side)||!['MARKET','LIMIT'].includes(type)) return NextResponse.json({ok:false,error:'Invalid order parameters.'},{status:400});
   if((quantity===undefined||quantity<=0)&&(quoteQuantity===undefined||quoteQuantity<=0)) return NextResponse.json({ok:false,error:'A positive quantity or quoteOrderQty is required.'},{status:400});
   if(type==='LIMIT'&&(price===undefined||price<=0)) return NextResponse.json({ok:false,error:'A valid limit price is required.'},{status:400});
@@ -50,6 +54,20 @@ export async function POST(req:NextRequest){
   if(!['PAPER','CONFIRM','AUTONOMOUS'].includes(mode)) return NextResponse.json({ok:false,error:'Invalid execution mode.'},{status:500});
   if(Array.isArray(risk.allowed_symbols)&&risk.allowed_symbols.length&&!risk.allowed_symbols.includes(symbol)) return NextResponse.json({ok:false,error:'Symbol is blocked by the active risk policy.'},{status:403});
   const x=await getExchange(userId,exchangeId);
+  const accountType=String(x.record.account_type||'SPOT').toUpperCase();
+  if(accountType==='FUTURES' && (quoteQuantity!==undefined || quantity===undefined)) {
+    return NextResponse.json({ok:false,error:'Futures orders require an explicit base-asset quantity; quoteOrderQty is Spot-only.'},{status:400});
+  }
+  if(droGuard && requestedSideForOrder(side)==='SHORT' && accountType!=='FUTURES') {
+    return NextResponse.json({ok:false,error:'Opening a short requires a Futures connection. Spot SELL orders only sell owned assets.',droGuard:{status:'BLOCKED',reason:'SPOT_ADAPTER_DOES_NOT_SUPPORT_SHORTS'}},{status:409});
+  }
+  if(accountType==='FUTURES') {
+    const leverage=num(b.leverage);
+    if(leverage===undefined || !Number.isInteger(leverage) || leverage<1 || leverage>Number(risk.max_leverage)) {
+      return NextResponse.json({ok:false,error:'For Futures, provide an integer leverage from 1 up to the configured max_leverage ('+risk.max_leverage+').',riskLimit:Number(risk.max_leverage)},{status:400});
+    }
+    b.leverage=leverage;
+  }
   if(Array.isArray(risk.allowed_exchanges)&&risk.allowed_exchanges.length&&!risk.allowed_exchanges.includes(x.record.name)) return NextResponse.json({ok:false,error:'Exchange is blocked by the active risk policy.'},{status:403});
   let effectivePrice=price;
   if(droGuard?.entry && type==='MARKET') effectivePrice=Number(droGuard.entry);
@@ -62,9 +80,9 @@ export async function POST(req:NextRequest){
   let dynamicRisk:any=null;
   if(droGuard){
    const realized=await db().query("SELECT COALESCE(SUM(CASE WHEN realized_pnl<0 THEN -realized_pnl ELSE 0 END),0)::numeric AS loss FROM trades WHERE user_id=$1 AND closed_at>=CURRENT_DATE",[userId]);
-   const exposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId]);
-   const symbolExposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND symbol=$2 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED')",[userId,symbol]);
-   const streak=await db().query("SELECT realized_pnl FROM trades WHERE user_id=$1 AND state='CLOSED' ORDER BY closed_at DESC LIMIT 5",[userId]);
+   const exposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND parent_trade_id IS NULL AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED','EMERGENCY_CLOSED')",[userId]);
+   const symbolExposure=await db().query("SELECT COALESCE(SUM(COALESCE(current_notional,0)),0)::numeric AS exposure FROM trades WHERE user_id=$1 AND parent_trade_id IS NULL AND symbol=$2 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED','EMERGENCY_CLOSED')",[userId,symbol]);
+   const streak=await db().query("SELECT realized_pnl FROM trades WHERE user_id=$1 AND parent_trade_id IS NULL AND state='CLOSED' ORDER BY closed_at DESC LIMIT 5",[userId]);
    let consecutiveLosses=0; for(const row of streak.rows){const pnl=Number(row.realized_pnl); if(Number.isFinite(pnl)&&pnl<0) consecutiveLosses++; else break;}
    dynamicRisk=calculateDynamicRisk({risk,advanced:intelligence.marketData,technical:intelligence.technical,side:side as 'BUY'|'SELL',entry:Number(droGuard.entry),stop:Number(droGuard.stopLoss),takeProfit:Number(droGuard.takeProfit),confidence:Number(droGuard.confidence),dailyRealizedLoss:Number(realized.rows[0]?.loss||0),openExposure:Number(exposure.rows[0]?.exposure||0),symbolExposure:Number(symbolExposure.rows[0]?.exposure||0),consecutiveLosses});
    const requestedQty=quantity??(quoteQuantity!/Number(droGuard.entry));
@@ -75,9 +93,10 @@ export async function POST(req:NextRequest){
    await audit({userId,action:'DYNAMIC_RISK_DECISION',exchange:x.record.name,symbol,source:'DRO_RISK_ENGINE',result:JSON.stringify({allowed:true,riskBudgetUsd:dynamicRisk.riskBudgetUsd,riskMultiplier:dynamicRisk.riskMultiplier,levelQuality:dynamicRisk.levelQuality,recommendedQuantity:dynamicRisk.recommendedQuantity}),status:'PASSED'});
    if(!Number.isFinite(requestedQty)||requestedQty<=0||requestedQty>Number(dynamicRisk.recommendedQuantity)) return NextResponse.json({ok:false,error:'DRO dynamic risk engine blocked the order: requested size exceeds the context-aware risk budget.',requestedQuantity:requestedQty,recommendedQuantity:dynamicRisk.recommendedQuantity,dynamicRisk},{status:403});
   }
-  const count=await db().query("SELECT COUNT(*)::int AS n FROM orders WHERE user_id=$1 AND created_at>=CURRENT_DATE",[userId]);
+  const count=await db().query("SELECT COUNT(*)::int AS n FROM trades WHERE user_id=$1 AND parent_trade_id IS NULL AND created_at>=CURRENT_DATE",[userId]);
   if(Number(count.rows[0]?.n||0)>=Number(risk.max_trades)) return NextResponse.json({ok:false,error:'Daily trade limit reached ('+risk.max_trades+').'},{status:403});
   const clientOrderId='FLI_'+crypto.randomBytes(12).toString('hex'); const p:any={symbol,side,type,clientOrderId};
+  if(accountType==='FUTURES') p.leverage=Number(b.leverage);
   if(quantity!==undefined)p.quantity=quantity; if(quoteQuantity!==undefined)p.quoteOrderQty=quoteQuantity;
   if(type==='LIMIT'){p.timeInForce='GTC';p.price=price;}
   if(mode==='PAPER'){
