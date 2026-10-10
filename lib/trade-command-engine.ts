@@ -52,22 +52,33 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  const x=await getExchange(userId,String(trade.exchange_id));
  if(String(x.record.name).toLowerCase()!=='binance') throw new Error('Protection execution currently supports Binance.');
  if(!x.record.permissions?.trading) throw new Error('Trading permission is disabled on this API key.');
- if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot protection currently requires a long BUY position.');
+ const accountType=String(x.record.account_type||'SPOT').toUpperCase();
+ const tradeSide=String(trade.side||'').toUpperCase();
+ const isLong=tradeSide==='BUY';
+ if(accountType==='SPOT'&&!isLong) throw new Error('Spot protection only supports a long BUY holding.');
+ if(accountType==='FUTURES'&&!['BUY','SELL'].includes(tradeSide)) throw new Error('Unsupported Futures position direction.');
+ const entry=num(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
+ if(!entry||entry<=0) throw new Error('A verified entry price is required before protection can be placed.');
+ if(isLong ? !(stopPrice<entry&&takeProfitPrice>entry) : !(stopPrice>entry&&takeProfitPrice<entry)) {
+   throw new Error('Invalid protection direction: long positions need SL below entry and TP above entry; short positions need SL above entry and TP below entry.');
+ }
  const qty=openPositionQuantity(trade);
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No protected position quantity is available.');
+ const exitSide=isLong?'SELL':'BUY';
+ const reduceOnly=accountType==='FUTURES'?{reduceOnly:true}:{};
  const mode=String(risk.execution_mode||'PAPER').toUpperCase();
- const payload={tradeId,symbol:trade.symbol,quantity:qty,stopPrice,takeProfitPrice};
+ const payload={tradeId,symbol:trade.symbol,accountType,positionSide:isLong?'LONG':'SHORT',quantity:qty,stopPrice,takeProfitPrice};
  if(mode==='PAPER') return {mode,simulated:true,verified:true,payload};
  if(mode==='CONFIRM') return {mode,requiresConfirmation:true,verified:false,payload};
  if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection is not enabled by the current execution policy.');
  const stopClient='FLI_SL_'+crypto.randomBytes(10).toString('hex'), tpClient='FLI_TP_'+crypto.randomBytes(10).toString('hex');
  let stop:any;
- try{stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});}
+ try{stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});}
  catch(firstError){
   try{stop=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,stopClient);}catch{throw firstError;}
  }
  let tp:any=null;
- try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
+ try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
  catch(firstError){try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}catch{try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw firstError;}}
  const stopStatus=String(stop?.status||'').toUpperCase(), tpStatus=String(tp?.status||'').toUpperCase();
  const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW'||stopStatus==='ACKNOWLEDGED';
