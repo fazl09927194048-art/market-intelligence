@@ -19,7 +19,9 @@ export type MarketProviderResult = {
   sourceHealth: Record<string, 'healthy' | 'degraded' | 'down'>;
 };
 
-const ASSETS = [
+type Asset = readonly [string, string, string];
+
+const ASSETS: readonly Asset[] = [
   ['BTC','Bitcoin','bitcoin'],
   ['ETH','Ethereum','ethereum'],
   ['SOL','Solana','solana'],
@@ -35,6 +37,8 @@ const ASSETS = [
   ['SHIB','Shiba Inu','shiba-inu'],
   ['TON','Toncoin','the-open-network'],
 ] as const;
+
+import { getCustomMarketSymbols } from './shared-watchlist';
 
 const REQUEST_TIMEOUT_MS = 7000;
 const MAX_SNAPSHOT_AGE_MS = 120_000;
@@ -68,12 +72,12 @@ function validateSnapshot(row: MarketSnapshot): boolean {
     (row.marketCap === undefined || (validNumber(row.marketCap) && row.marketCap >= 0));
 }
 
-async function coinGecko(): Promise<MarketSnapshot[]> {
-  const ids = ASSETS.map(x => x[2]).join(',');
+async function coinGecko(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
+  const ids = assets.map(x => x[2]).join(',');
   const data = await json(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true`);
   const fetchedAt = new Date().toISOString();
 
-  return ASSETS.map(([symbol, name, id]) => makeSnapshot({
+  return assets.map(([symbol, name, id]) => makeSnapshot({
     symbol,
     name,
     price: Number(data[id]?.usd),
@@ -85,15 +89,15 @@ async function coinGecko(): Promise<MarketSnapshot[]> {
   })).filter(validateSnapshot);
 }
 
-async function binance(): Promise<MarketSnapshot[]> {
-  const rows = await Promise.all(ASSETS.map(([symbol]) => json(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}USDT`)));
+async function binance(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
+  const rows = await Promise.all(assets.map(([symbol]) => json(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}USDT`)));
   const fetchedAt = new Date().toISOString();
 
   return rows.map((row: unknown, i) => {
     const r = row as Record<string, unknown>;
     return makeSnapshot({
-      symbol: ASSETS[i][0],
-      name: ASSETS[i][1],
+      symbol: assets[i][0],
+      name: assets[i][1],
       price: Number(r.lastPrice),
       change24h: Number(r.priceChangePercent),
       volume24h: Number(r.quoteVolume),
@@ -103,13 +107,13 @@ async function binance(): Promise<MarketSnapshot[]> {
   }).filter(validateSnapshot);
 }
 
-async function cryptoCompare(): Promise<MarketSnapshot[]> {
-  const symbols = ASSETS.map(x => x[0]).join(',');
+async function cryptoCompare(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
+  const symbols = assets.map(x => x[0]).join(',');
   const data = await json(`https://min-api.cryptocompare.com/data/pricemultifull?fsyms=${symbols}&tsyms=USD`);
   const raw = data?.RAW ?? {};
   const fetchedAt = new Date().toISOString();
 
-  return ASSETS.map(([symbol, name]) => {
+  return assets.map(([symbol, name]) => {
     const r = raw[symbol]?.USD;
     return makeSnapshot({
       symbol,
@@ -124,16 +128,16 @@ async function cryptoCompare(): Promise<MarketSnapshot[]> {
   }).filter(validateSnapshot);
 }
 
-async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, warnings: string[], health: Record<string, 'healthy' | 'degraded' | 'down'>) {
+async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, expectedCount: number, warnings: string[], health: Record<string, 'healthy' | 'degraded' | 'down'>) {
   try {
     const markets = await fn();
-    if (markets.length === ASSETS.length) {
+    if (markets.length === expectedCount) {
       health[name] = 'healthy';
       return markets;
     }
     if (markets.length > 0) {
       health[name] = 'degraded';
-      warnings.push(`${name} returned partial validated data (${markets.length}/${ASSETS.length}).`);
+      warnings.push(`${name} returned partial validated data (${markets.length}/${expectedCount}).`);
       return markets;
     }
     health[name] = 'degraded';
@@ -146,24 +150,27 @@ async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, 
 }
 
 export async function getMarkets(): Promise<MarketProviderResult> {
+  const customSymbols = await getCustomMarketSymbols().catch(() => []);
+  const known = new Set(ASSETS.map(asset => asset[0]));
+  const assets: readonly Asset[] = [...ASSETS, ...customSymbols.filter(symbol => !known.has(symbol)).map(symbol => [symbol, symbol, symbol.toLowerCase()] as const)];
   const warnings: string[] = [];
   const sourceHealth: Record<string, 'healthy' | 'degraded' | 'down'> = {};
   const merged = new Map<string, MarketSnapshot>();
 
   // Merge validated rows from keyless sources so one partial provider cannot hide supported assets.
   const providers: Array<[string, () => Promise<MarketSnapshot[]>]> = [
-    ['CoinGecko', coinGecko],
-    ['Binance', binance],
-    ['CryptoCompare', cryptoCompare],
+    ['CoinGecko', () => coinGecko(assets)],
+    ['Binance', () => binance(assets)],
+    ['CryptoCompare', () => cryptoCompare(assets)],
   ];
 
   for (const [name, fn] of providers) {
-    const rows = await fetchProvider(name, fn, warnings, sourceHealth);
+    const rows = await fetchProvider(name, fn, assets.length, warnings, sourceHealth);
     for (const row of rows) if (!merged.has(row.symbol)) merged.set(row.symbol, row);
-    if (merged.size === ASSETS.length) break;
+    if (merged.size === assets.length) break;
   }
 
-  const markets = ASSETS.map(([symbol]) => merged.get(symbol)).filter((row): row is MarketSnapshot => Boolean(row));
+  const markets = assets.map(([symbol]) => merged.get(symbol)).filter((row): row is MarketSnapshot => Boolean(row));
   return {
     markets,
     provider: markets.length ? [...new Set(markets.map(row => row.source))].join(' + ') : 'unavailable',
