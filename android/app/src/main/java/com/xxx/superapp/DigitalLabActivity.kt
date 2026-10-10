@@ -29,7 +29,7 @@ private const val LAB_GOLD = 0xFFF4C76B.toInt()
 private data class LabMarket(val symbol: String, val name: String, val price: Double, val change: Double)
 
 class DigitalLabActivity : AppCompatActivity() {
-    private val serverUrl = "https://market-intelligence-840b.onrender.com"
+    private val serverUrl: String get() = prefs.getString("server_url", "https://market-intelligence-840b.onrender.com").orEmpty().trim().trimEnd('/')
     private val prefs by lazy { getSharedPreferences("dro_control", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
     private lateinit var page: LinearLayout
@@ -105,6 +105,8 @@ class DigitalLabActivity : AppCompatActivity() {
         add(hero, "این نسخه قیمت‌های بازار را از API سایت می‌گیرد و محاسبات را روی خود گوشی انجام می‌دهد. داده ساختگی به‌عنوان قیمت زنده نمایش داده نمی‌شود.", 12f, LAB_MUTED)
         button(hero, "ورود به آزمایشگاه ترید", true) { tab = "lab"; render() }
         button(hero, "مشاهده بازار", false) { tab = "markets"; render(); refreshMarkets() }
+        button(hero, "گفت‌وگوی مستقیم با DRO", true) { startActivity(Intent(this, DROChatActivity::class.java)) }
+        button(hero, "تنظیمات و همگام‌سازی سایت", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
 
         val market = card("وضعیت بازار")
         add(market, marketMessage, 13f, if (marketRows.isEmpty()) LAB_GOLD else LAB_GREEN)
@@ -115,6 +117,8 @@ class DigitalLabActivity : AppCompatActivity() {
         button(shortcuts, "محاسبه حجم پوزیشن و ریسک", false) { tab = "lab"; render() }
         button(shortcuts, "محاسبه P/L لانگ و شورت", false) { tab = "lab"; render() }
         button(shortcuts, "دفترچه معاملات و درس‌آموخته‌ها", false) { tab = "journal"; render() }
+        button(shortcuts, "گفت‌وگو با DRO", false) { startActivity(Intent(this, DROChatActivity::class.java)) }
+        button(shortcuts, "تنظیمات برنامه", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
         button(shortcuts, "اتصال گوشی، مجوزها و اشتراک صفحه", false) {
             startActivity(Intent(this, MainActivity::class.java))
         }
@@ -127,7 +131,7 @@ class DigitalLabActivity : AppCompatActivity() {
 
     private fun markets() {
         val c = card("MARKET WATCH • پایش بازار")
-        add(c, "منبع: API پروژه FLI/DRO. اگر سرویس یا منبع قیمت در دسترس نباشد، قیمت ساختگی نمایش داده نمی‌شود.", 12f, LAB_MUTED)
+        add(c, "منبع واحد: API مشترک FLI/DRO. هر نمادی که سرور در /api/market برگرداند بدون انتشار APK در این فهرست ظاهر می‌شود.", 12f, LAB_MUTED)
         button(c, if (loading) "در حال دریافت…" else "رفرش بازار", true, loading) { refreshMarkets() }
         add(c, marketMessage, 12f, if (marketRows.isEmpty()) LAB_GOLD else LAB_GREEN)
         if (marketRows.isEmpty()) {
@@ -252,6 +256,8 @@ class DigitalLabActivity : AppCompatActivity() {
         button(c, "تحلیل‌گر و اسکن تصویر DRO", false) { openUrl(serverUrl) }
         button(c, "باز کردن صفحه تنظیمات سایت", false) { openUrl(serverUrl + "/settings") }
         button(c, "باز کردن API وضعیت بازار", false) { openUrl(serverUrl + "/api/market") }
+        button(c, "چت مستقیم با DRO", true) { startActivity(Intent(this, DROChatActivity::class.java)) }
+        button(c, "تنظیمات و همگام‌سازی", false) { startActivity(Intent(this, DROSettingsActivity::class.java)) }
         val privacy = card("ایمنی و شفافیت")
         add(privacy, "• این برنامه در این نسخه سفارش صرافی ارسال نمی‌کند.\n• قیمت‌ها فقط از پاسخ API دریافت می‌شوند.\n• محاسبات سود و زیان تقریبی‌اند و هزینه‌ها را لحاظ نمی‌کنند.\n• توکن و مجوزهای Phone Control در صفحه جداگانه مدیریت می‌شوند.\n• قبل از استفاده از هر قابلیت کنترل گوشی، مجوزهای اندروید را بررسی کن.", 12f, LAB_MUTED)
     }
