@@ -26,6 +26,14 @@ const ASSETS = [
   ['BNB','BNB','binancecoin'],
   ['XRP','XRP','ripple'],
   ['ADA','Cardano','cardano'],
+  ['DOGE','Dogecoin','dogecoin'],
+  ['TRX','TRON','tron'],
+  ['LINK','Chainlink','chainlink'],
+  ['DOT','Polkadot','polkadot'],
+  ['LTC','Litecoin','litecoin'],
+  ['AVAX','Avalanche','avalanche-2'],
+  ['SHIB','Shiba Inu','shiba-inu'],
+  ['TON','Toncoin','the-open-network'],
 ] as const;
 
 const REQUEST_TIMEOUT_MS = 7000;
@@ -119,7 +127,7 @@ async function cryptoCompare(): Promise<MarketSnapshot[]> {
 async function fetchProvider(name: string, fn: () => Promise<MarketSnapshot[]>, warnings: string[], health: Record<string, 'healthy' | 'degraded' | 'down'>) {
   try {
     const markets = await fn();
-    if (markets.length === ASSETS.length) {
+    if (markets.length >= 6) {
       health[name] = 'healthy';
       return markets;
     }
@@ -145,7 +153,7 @@ export async function getMarkets(): Promise<MarketProviderResult> {
 
   for (const [name, fn] of providers) {
     const markets = await fetchProvider(name, fn, warnings, sourceHealth);
-    if (markets.length === ASSETS.length) {
+    if (markets.length >= 6) {
       return { markets, provider: name, warnings, fetchedAt: new Date().toISOString(), sourceHealth };
     }
   }
