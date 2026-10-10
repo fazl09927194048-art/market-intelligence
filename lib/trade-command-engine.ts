@@ -169,7 +169,9 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
  if(adjustmentAccountType==='FUTURES') throw new Error('Automatic Futures stop adjustment is temporarily blocked until exchange position-size, current-price, and reduce-only verification are wired in. Existing protection was not changed.');
  if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot stop adjustment currently supports long BUY positions only.');
  const entry=Number(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
- const current=Number(trade.current_price); const oldStop=Number(trade.stop_price);
+ let current=0;
+ try{const ticker=await exchangeManager.ticker(adjustmentExchange.record.name,adjustmentExchange.credentials,String(trade.symbol));current=Number(ticker?.lastPrice??ticker?.price);}catch{throw new Error('Could not fetch a live exchange price; stop adjustment was not submitted.');}
+ const oldStop=Number(trade.stop_price);
  if(!Number.isFinite(entry)||entry<=0) throw new Error('Trade has no valid entry price.');
  let stop=intent==='MOVE_STOP_TO_BREAKEVEN'?entry:Number(requestedStop);
  if(!Number.isFinite(stop)||stop<=0) throw new Error('A valid stop price is required.');
@@ -190,17 +192,36 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
  const qty=openPositionQuantity(trade);
  if(qty<=0) throw new Error('No protected quantity is available.');
  if(protection?.stop_order_id){
-  try{await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));}
-  catch(e){throw new Error('Existing stop could not be cancelled safely; no replacement was submitted.');}
+  let cancelConfirmed=false;
+  try{const result=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));cancelConfirmed=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||'').toUpperCase());}catch{}
+  if(!cancelConfirmed){try{const result=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(protection.stop_order_id));cancelConfirmed=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||result?.orderStatus||'').toUpperCase());}catch{}}
+  if(!cancelConfirmed) throw new Error('Existing stop cancellation could not be confirmed. No replacement was submitted and the old order reference was preserved for reconciliation.');
  }
  await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
  const cid='FLI_SL_'+crypto.randomBytes(10).toString('hex');
  let order:any;
  try{order=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stop),stopPrice:String(stop),newOrderRespType:'FULL',clientOrderId:cid});}
  catch(e){
+  let restored:any=null;
+  const restoreClient='FLI_SL_RESTORE_'+crypto.randomBytes(8).toString('hex');
+  if(Number.isFinite(oldStop)&&oldStop>0&&Number.isFinite(current)&&oldStop<current&&qty>0){
+   try{
+    const candidate=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:'SELL',type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(oldStop),stopPrice:String(oldStop),newOrderRespType:'FULL',clientOrderId:restoreClient});
+    const status=String(candidate?.status||'').toUpperCase();
+    if((status==='NEW'||status==='PENDING_NEW')&&candidate?.orderId) restored=candidate;
+    else if(candidate?.orderId){const verified=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(candidate.orderId),restoreClient);if(['NEW','PENDING_NEW'].includes(String(verified?.status||verified?.orderStatus||'').toUpperCase())) restored={...candidate,...verified};}
+   }catch{}
+  }
+  if(restored){
+   await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','STOP_LOSS_LIMIT',$4,$5,$6,$7,'NEW',$8) ON CONFLICT(exchange_id,client_order_id) DO NOTHING",[userId,trade.exchange_id,trade.symbol,qty,oldStop,restoreClient,String(restored.orderId),restored]);
+   await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,stop_price=EXCLUDED.stop_price,status='PROTECTED',verified_at=now(),updated_at=now()",[tradeId,String(restored.orderId),protection?.take_profit_order_id||null,oldStop,trade.take_profit_price??null]);
+   await db().query("UPDATE trades SET stop_price=$1,state='PROTECTED',updated_at=now() WHERE id=$2",[oldStop,tradeId]);
+   return {mode,failed:true,restoredPreviousStop:true,stopPrice:oldStop,error:e instanceof Error?e.message:'Stop replacement failed'};
+  }
   await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[tradeId]);
-  await db().query("UPDATE trades SET state='PROTECTION_PENDING',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
-  return {mode,failed:true,unprotected:true,previousStop:oldStop,stopPrice:stop,error:e instanceof Error?e.message:'Stop replacement failed'};
+  await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','FAILED','REJECTED')",[tradeId]);
+  await audit({userId,action:'STOP_ADJUSTMENT_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:cid,source:'DRO_TOOL',result:'Replacement stop failed and previous stop restoration was not confirmed.',status:'RECONCILIATION_REQUIRED'});
+  return {mode,failed:true,unprotected:true,reconciliationRequired:true,previousStop:oldStop,stopPrice:stop,error:e instanceof Error?e.message:'Stop replacement and rollback failed'};
  }
  let stopStatus=String(order?.status||'').toUpperCase(); const stopOrderId=String(order?.orderId||'');
  if(!stopStatus && stopOrderId){
