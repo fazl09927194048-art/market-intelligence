@@ -62,6 +62,12 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(isLong ? !(stopPrice<entry&&takeProfitPrice>entry) : !(stopPrice>entry&&takeProfitPrice<entry)) {
    throw new Error('Invalid protection direction: long positions need SL below entry and TP above entry; short positions need SL above entry and TP below entry.');
  }
+ const current=Number(trade.current_price);
+ if(!Number.isFinite(current)||current<=0) throw new Error('A fresh current market price is required before placing live protection. Refresh market data and retry.');
+ if(isLong ? !(stopPrice<current&&takeProfitPrice>current) : !(stopPrice>current&&takeProfitPrice<current)) {
+   throw new Error('Protection prices are on the wrong side of the current market and could trigger immediately; refresh the price and set valid SL/TP levels.');
+ }
+ if(accountType==='FUTURES' && String(x.record.position_mode||'ONE_WAY').toUpperCase().includes('HEDGE')) throw new Error('Hedge-mode Futures protection is not enabled yet; use One-way mode or keep this position in manual protection.');
  const qty=openPositionQuantity(trade);
  if(!Number.isFinite(qty)||qty<=0) throw new Error('No protected position quantity is available.');
  const exitSide=isLong?'SELL':'BUY';
@@ -81,15 +87,15 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
  catch(firstError){try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}catch{try{if(stop?.orderId) await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);}catch{} throw firstError;}}
  const stopStatus=String(stop?.status||'').toUpperCase(), tpStatus=String(tp?.status||'').toUpperCase();
- const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW'||stopStatus==='ACKNOWLEDGED';
- const verifiedTp=tpStatus==='NEW'||tpStatus==='PENDING_NEW'||tpStatus==='ACKNOWLEDGED';
+ const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW';
+ const verifiedTp=tpStatus==='NEW'||tpStatus==='PENDING_NEW';
  if(!verifiedStop||!verifiedTp){
   try{if(stop?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId));}catch{}
   try{if(tp?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(tp.orderId));}catch{}
   throw new Error('Exchange did not confirm both protection orders as active; position was not marked PROTECTED.');
  }
- const sp=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','STOP_LOSS_LIMIT',$4,$5,$6,$7,$8,$9) RETURNING id",[userId,trade.exchange_id,trade.symbol,qty,stopPrice,stopClient,String(stop?.orderId||''),stopStatus,stop]);
- const tpOrder=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,'SELL','TAKE_PROFIT_LIMIT',$4,$5,$6,$7,$8,$9) RETURNING id",[userId,trade.exchange_id,trade.symbol,qty,takeProfitPrice,tpClient,String(tp?.orderId||''),tpStatus,tp]);
+ const sp=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,'STOP_LOSS_LIMIT',$5,$6,$7,$8,$9,$10) RETURNING id",[userId,trade.exchange_id,trade.symbol,exitSide,qty,stopPrice,stopClient,String(stop?.orderId||''),stopStatus,stop]);
+ const tpOrder=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,'TAKE_PROFIT_LIMIT',$5,$6,$7,$8,$9,$10) RETURNING id",[userId,trade.exchange_id,trade.symbol,exitSide,qty,takeProfitPrice,tpClient,String(tp?.orderId||''),tpStatus,tp]);
  await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5),($6,$2,$7,$8,$9)",[sp.rows[0].id,'CREATED',stopStatus,'PROTECTION_SUBMITTED',stop,tpOrder.rows[0].id,tpStatus,'PROTECTION_SUBMITTED',tp]);
  await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,verified_at,updated_at) VALUES($1,$2,$3,$4,$5,'PROTECTED',now(),now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,take_profit_order_id=EXCLUDED.take_profit_order_id,stop_price=EXCLUDED.stop_price,take_profit_price=EXCLUDED.take_profit_price,status='PROTECTED',verified_at=now(),updated_at=now()",[tradeId,String(stop.orderId||''),String(tp?.orderId||''),stopPrice,takeProfitPrice]);
  await db().query("UPDATE trades SET stop_price=$1,take_profit_price=$2,state='PROTECTED',updated_at=now() WHERE id=$3",[stopPrice,takeProfitPrice,tradeId]);
@@ -102,6 +108,9 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
  if(!r.rows[0]) throw new Error('Trade not found.');
  const trade=r.rows[0]; const risk=await getTradingRisk(userId);
  if(risk.emergency_stop) throw new Error('Emergency stop is active.');
+ const adjustmentExchange=await getExchange(userId,String(trade.exchange_id));
+ const adjustmentAccountType=String(adjustmentExchange.record.account_type||'SPOT').toUpperCase();
+ if(adjustmentAccountType==='FUTURES') throw new Error('Automatic Futures stop adjustment is temporarily blocked until exchange position-size, current-price, and reduce-only verification are wired in. Existing protection was not changed.');
  if(String(trade.side).toUpperCase()!=='BUY') throw new Error('Spot stop adjustment currently supports long BUY positions only.');
  const entry=Number(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
  const current=Number(trade.current_price); const oldStop=Number(trade.stop_price);
@@ -145,7 +154,7 @@ export async function executeStopAdjustmentCommand(userId:string,tradeId:string,
    if(verified?.status) order={...order,...verified};
   }catch{}
  }
- const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW'||stopStatus==='ACKNOWLEDGED';
+ const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW';
  if(!verifiedStop){
   try{if(stopOrderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,stopOrderId,cid);}catch{}
   await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[tradeId]);
