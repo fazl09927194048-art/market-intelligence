@@ -18,8 +18,8 @@ async function request(c: ExchangeCredentials, path: string, method: Method, par
   if (c.accountType === 'FUTURES' && method === 'POST') {
     if (p.newOrderRespType === 'FULL') p.newOrderRespType = 'RESULT';
     // USD-M futures uses STOP / TAKE_PROFIT market triggers rather than Spot's limit variants.
-    if (p.type === 'STOP_LOSS_LIMIT') { p.type = 'STOP'; delete p.timeInForce; delete p.price; }
-    if (p.type === 'TAKE_PROFIT_LIMIT') { p.type = 'TAKE_PROFIT'; delete p.timeInForce; delete p.price; }
+    if (p.type === 'STOP_LOSS_LIMIT' || p.type === 'STOP_LOSS') { p.type = 'STOP_MARKET'; delete p.timeInForce; delete p.price; }
+    if (p.type === 'TAKE_PROFIT_LIMIT' || p.type === 'TAKE_PROFIT') { p.type = 'TAKE_PROFIT_MARKET'; delete p.timeInForce; delete p.price; }
   }
   if (signed) { p.timestamp = Date.now(); p.recvWindow = 5000; }
   const unsignedQuery = qs(p);
@@ -70,11 +70,14 @@ const adapter: ExchangeAdapter = {
       const payload = { ...p };
       // Spot quoteOrderQty is not a Futures order parameter.
       if (payload.quoteOrderQty !== undefined) throw new Error('quoteOrderQty is Spot-only; Futures requires an explicit quantity.');
-      const leverage = Number(payload.leverage);
+      const requestedLeverage = payload.leverage;
       delete payload.leverage;
-      if (!Number.isInteger(leverage) || leverage < 1 || leverage > 125) throw new Error('Futures order requires an explicit integer leverage from 1 to 125.');
-      // Apply leverage through Binance's dedicated endpoint; the order endpoint does not accept a leverage field.
-      await request(c, '/fapi/v1/leverage', 'POST', { symbol: String(payload.symbol || '').toUpperCase(), leverage }, true);
+      if (requestedLeverage !== undefined) {
+        const leverage = Number(requestedLeverage);
+        if (!Number.isInteger(leverage) || leverage < 1 || leverage > 125) throw new Error('Futures leverage must be an integer from 1 to 125.');
+        // Set leverage only for an entry request that explicitly asks for it. A reduceOnly close must not reset leverage.
+        if (payload.reduceOnly !== true) await request(c, '/fapi/v1/leverage', 'POST', { symbol: String(payload.symbol || '').toUpperCase(), leverage }, true);
+      }
       return request(c, '/fapi/v1/order', 'POST', payload, true);
     }
     return request(c, '/api/v3/order', 'POST', p, true);
