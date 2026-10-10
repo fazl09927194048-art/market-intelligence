@@ -90,12 +90,16 @@ async function coinGecko(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
 }
 
 async function binance(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
-  const rows = await Promise.all(assets.map(([symbol]) => json(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}USDT`)));
+  // An unsupported custom ticker must not discard valid rows for all other symbols.
+  const rows = await Promise.allSettled(assets.map(([symbol]) =>
+    json(`https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${symbol}USDT`)
+  ));
   const fetchedAt = new Date().toISOString();
 
-  return rows.map((row: unknown, i) => {
-    const r = row as Record<string, unknown>;
-    return makeSnapshot({
+  return rows.flatMap((result, i) => {
+    if (result.status !== 'fulfilled') return [];
+    const r = result.value as Record<string, unknown>;
+    const snapshot = makeSnapshot({
       symbol: assets[i][0],
       name: assets[i][1],
       price: Number(r.lastPrice),
@@ -104,7 +108,8 @@ async function binance(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
       source: 'Binance',
       fetchedAt,
     });
-  }).filter(validateSnapshot);
+    return validateSnapshot(snapshot) ? [snapshot] : [];
+  });
 }
 
 async function cryptoCompare(assets: readonly Asset[]): Promise<MarketSnapshot[]> {
