@@ -29,7 +29,7 @@ export function parseTradeIntent(input:string){
 export async function resolveActiveTrades(userId:string,symbol?:string){
  await ensureExchangeSchema();
  const params:any[]=[userId];
- let where='user_id=$1 AND state NOT IN (\'CLOSED\',\'REJECTED\',\'CANCELED\',\'CANCELLED\',\'EXPIRED\',\'FAILED\')';
+ let where='user_id=$1 AND parent_trade_id IS NULL AND state NOT IN (\'CLOSED\',\'REJECTED\',\'CANCELED\',\'CANCELLED\',\'EXPIRED\',\'FAILED\')';
  if(symbol){params.push(symbol.toUpperCase());where+=' AND symbol=$2';}
  const r=await db().query(`SELECT id,symbol,side,state,average_fill_price,current_price,unrealized_pnl,unrealized_pnl_pct,stop_price,take_profit_price,risk_level,thesis_status,created_at,updated_at FROM trades WHERE ${where} ORDER BY created_at DESC LIMIT 20`,params);
  return r.rows;
