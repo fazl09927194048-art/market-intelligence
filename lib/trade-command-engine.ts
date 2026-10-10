@@ -90,14 +90,26 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  let stop:any;
  try{stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});}
  catch(firstError){
-  try{stop=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,stopClient);}catch{throw firstError;}
+  try{stop=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,stopClient);}
+  catch{
+   await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,status,raw) VALUES($1,$2,$3,$4,'STOP_LOSS_LIMIT',$5,$6,$7,'RECONCILIATION_REQUIRED',$8) ON CONFLICT(exchange_id,client_order_id) DO UPDATE SET status='RECONCILIATION_REQUIRED',raw=EXCLUDED.raw,updated_at=now()",[userId,trade.exchange_id,trade.symbol,exitSide,qty,stopPrice,stopClient,{error:firstError instanceof Error?firstError.message:'Submission outcome unknown'}]);
+   await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,updated_at) VALUES($1,NULL,NULL,$2,$3,'RECONCILIATION_REQUIRED',now()) ON CONFLICT(trade_id) DO UPDATE SET status='RECONCILIATION_REQUIRED',updated_at=now()",[tradeId,stopPrice,takeProfitPrice]);
+   await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1",[tradeId]);
+   await audit({userId,action:'PROTECTION_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:stopClient,source:'DRO_TOOL',result:'Stop submission outcome is unknown; exchange lookup failed.',status:'RECONCILIATION_REQUIRED'});
+   throw new Error('Stop-loss submission outcome is unknown because the exchange could not confirm it. The trade is marked for reconciliation; do not retry protection blindly.');
+  }
  }
  let tp:any=null;
  try{tp=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'TAKE_PROFIT_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(takeProfitPrice),stopPrice:String(takeProfitPrice),newOrderRespType:'FULL',clientOrderId:tpClient});}
  catch(firstError){
   try{tp=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);}
   catch{
-   let stopCancelled=false;
+   let stopCancelled=false, tpCancelled=false;
+   try{
+    const tpCancel=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,undefined,tpClient);
+    tpCancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(tpCancel?.status||'').toUpperCase());
+   }catch{}
+   if(!tpCancelled){try{const tpVerify=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,undefined,tpClient);tpCancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(tpVerify?.status||tpVerify?.orderStatus||'').toUpperCase());}catch{}}
    try{
     if(stop?.orderId){
      const cancelled=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);
@@ -105,11 +117,11 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
      if(!stopCancelled){const verify=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(stop.orderId),stopClient);stopCancelled=['CANCELED','CANCELLED','EXPIRED'].includes(String(verify?.status||'').toUpperCase());}
     }
    }catch{}
-   if(!stopCancelled){
+   if(!stopCancelled||!tpCancelled){
     await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,updated_at) VALUES($1,$2,NULL,$3,$4,'RECONCILIATION_REQUIRED',now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,status='RECONCILIATION_REQUIRED',updated_at=now()",[tradeId,String(stop?.orderId||''),stopPrice,takeProfitPrice]);
     await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1",[tradeId]);
-    await audit({userId,action:'PROTECTION_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:String(stop?.orderId||stopClient),source:'DRO_TOOL',result:'Take-profit submission failed and stop cancellation could not be confirmed.',status:'RECONCILIATION_REQUIRED'});
-    throw new Error('Take-profit submission failed and stop-loss cancellation could not be confirmed. The exchange may still have an active stop; manual reconciliation is required.');
+    await audit({userId,action:'PROTECTION_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:String(stop?.orderId||stopClient),source:'DRO_TOOL',result:'Take-profit submission outcome or protective-order cancellation could not be confirmed.',status:'RECONCILIATION_REQUIRED'});
+    throw new Error('Take-profit submission outcome or cancellation of one or more protective orders could not be confirmed. One or more orders may remain active; manual reconciliation is required.');
    }
    throw firstError;
   }
