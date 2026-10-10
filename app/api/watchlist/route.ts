@@ -1,9 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { consumeRateLimit } from '@/lib/request-guard';
+import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { addCustomMarketSymbol, getCustomMarketSymbols, removeCustomMarketSymbol } from '@/lib/shared-watchlist';
 import { clearMarketServiceCache } from '@/lib/market-provider';
 
 export const dynamic = 'force-dynamic';
+
+function mutationRequestError(request: NextRequest): NextResponse | null {
+  const origin = request.headers.get('origin');
+  const host = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim() || request.headers.get('host');
+  if (!origin || !host) {
+    return NextResponse.json({ ok: false, error: 'A same-origin browser request is required.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  }
+  try {
+    if (new URL(origin).host.toLowerCase() !== host.toLowerCase()) {
+      return NextResponse.json({ ok: false, error: 'Cross-origin watchlist changes are not allowed.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+    }
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid request origin.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (!request.headers.get('content-type')?.toLowerCase().includes('application/json')) {
+    return NextResponse.json({ ok: false, error: 'Content-Type must be application/json.' }, { status: 415, headers: { 'Cache-Control': 'no-store' } });
+  }
+  if (tooLarge(request, 1024)) {
+    return NextResponse.json({ ok: false, error: 'Request body is too large.' }, { status: 413, headers: { 'Cache-Control': 'no-store' } });
+  }
+  return null;
+}
 
 export async function GET() {
   try {
@@ -17,6 +39,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const requestError = mutationRequestError(request);
+  if (requestError) return requestError;
   const limit = consumeRateLimit(request, 'shared-watchlist-write', 5);
   if (!limit.allowed) {
     return NextResponse.json({ ok: false, error: 'Too many watchlist changes. Try again shortly.' }, {
@@ -36,14 +60,17 @@ export async function POST(request: NextRequest) {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('DATABASE_URL')
-      ? error.message
-      : 'Could not save the shared watchlist. Check database connectivity.';
-    return NextResponse.json({ ok: false, error: message }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    const detail = error instanceof Error ? error.message : '';
+    const isConfig = detail.includes('DATABASE_URL');
+    const isFull = detail.includes('watchlist is full');
+    const message = isConfig || isFull ? detail : 'Could not save the shared watchlist. Check database connectivity.';
+    return NextResponse.json({ ok: false, error: message }, { status: isFull ? 409 : 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  const requestError = mutationRequestError(request);
+  if (requestError) return requestError;
   const limit = consumeRateLimit(request, 'shared-watchlist-write', 5);
   if (!limit.allowed) {
     return NextResponse.json({ ok: false, error: 'Too many watchlist changes. Try again shortly.' }, {
@@ -60,9 +87,9 @@ export async function DELETE(request: NextRequest) {
     clearMarketServiceCache();
     return NextResponse.json({ ok: true, symbols, removed: symbol }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('DATABASE_URL')
-      ? error.message
-      : 'Could not update the shared watchlist. Check database connectivity.';
+    const detail = error instanceof Error ? error.message : '';
+    const isConfig = detail.includes('DATABASE_URL');
+    const message = isConfig ? detail : 'Could not update the shared watchlist. Check database connectivity.';
     return NextResponse.json({ ok: false, error: message }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }
