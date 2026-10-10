@@ -39,7 +39,9 @@ export async function POST(req:NextRequest){
   if(accountType==='FUTURES') {
     const result=await exchangeManager.positions(x.record.name,x.credentials);
     const positions=Array.isArray(result?.positions)?result.positions:[];
-    const position=positions.find((v:any)=>String(v?.symbol||'').toUpperCase()===symbol);
+    const matching=positions.filter((v:any)=>String(v?.symbol||'').toUpperCase()===symbol&&Math.abs(n(v?.positionAmt))>0);
+    if(matching.length>1) return NextResponse.json({ok:false,error:'Multiple open Futures positions exist for this symbol (likely Hedge mode). Automatic close is blocked because positionSide-aware closing is not yet supported.'},{status:409});
+    const position=matching[0];
     const amount=n(position?.positionAmt);
     available=Math.abs(amount);
     if(amount<0) orderSide='BUY';
@@ -69,7 +71,10 @@ export async function POST(req:NextRequest){
   const status=String(result.status||'ACKNOWLEDGED').toUpperCase();
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,exchangeId,symbol,orderSide,'MARKET',quantity,Number(result.avgPrice||result.price)||null,clientOrderId,String(result.orderId||''),status,result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'CLOSE_SUBMITTED',result]);
-  const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side:orderSide,executionMode:'AUTONOMOUS',quantity});
+  const parentSide=accountType==='FUTURES'?(orderSide==='BUY'?'SELL':'BUY'):'BUY';
+  const parentResult=await db().query("SELECT id,state FROM trades WHERE user_id=$1 AND exchange_id=$2 AND symbol=$3 AND side=$4 AND state NOT IN ('CLOSED','REJECTED','CANCELED','CANCELLED','EXPIRED','FAILED','EMERGENCY_CLOSED') ORDER BY created_at DESC LIMIT 1",[userId,exchangeId,symbol,parentSide]);
+  const parentTradeId=parentResult.rows[0]?.id?String(parentResult.rows[0].id):undefined;
+  const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side:orderSide,executionMode:'AUTONOMOUS',quantity,parentTradeId});
   await db().query("UPDATE trades SET state='CLOSING',closed_quantity=0,exit_reason=$1,updated_at=now() WHERE id=$2",[intent.reason,tradeId]);
   await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[tradeId,'CREATED','CLOSING','CLOSE_SUBMITTED','DRO_TOOL',intent.reason,result]);
   let verification:any=null;
