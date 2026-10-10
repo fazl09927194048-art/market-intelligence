@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application android:allowBackup="true" android:label="DRO Digital Lab" android:theme="@style/Theme.xXx">
+        <activity android:name=".DROChatActivity" android:exported="false" />
+        <activity android:name=".DROSettingsActivity" android:exported="false" />
         <activity android:name=".DigitalLabActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
