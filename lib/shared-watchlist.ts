@@ -57,3 +57,14 @@ export async function addCustomMarketSymbol(symbol: string): Promise<string[]> {
   );
   return result.rows.map(row => row.symbol);
 }
+
+export async function removeCustomMarketSymbol(symbol: string): Promise<string[]> {
+  const db = getPool();
+  if (!db) throw new Error('Shared database is not configured; set DATABASE_URL to synchronize custom symbols across devices.');
+  await ensureSchema(db);
+  await db.query('DELETE FROM shared_market_watchlist WHERE symbol = $1', [symbol]);
+  const result = await db.query<{ symbol: string }>(
+    'SELECT symbol FROM shared_market_watchlist ORDER BY created_at ASC LIMIT 100'
+  );
+  return result.rows.map(row => row.symbol);
+}
