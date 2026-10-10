@@ -3,6 +3,7 @@ package com.xxx.superapp
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
@@ -30,9 +31,10 @@ class DROAccessibilityService : AccessibilityService() {
                 c.connectTimeout = 5000
                 c.readTimeout = 7000
                 c.setRequestProperty("Authorization", "Bearer $token")
-                if (c.responseCode !in 200..299) return@execute
+                if (c.responseCode !in 200..299) { c.disconnect(); return@execute }
                 val actions = JSONObject(c.inputStream.bufferedReader().readText()).optJSONArray("actions") ?: return@execute
                 for (i in 0 until actions.length()) execute(actions.getJSONObject(i))
+                c.disconnect()
             } catch (_: Exception) {}
         }
     }
@@ -103,7 +105,8 @@ class DROAccessibilityService : AccessibilityService() {
     }
 
     private fun walk(n: AccessibilityNodeInfo, a: JSONArray) {
-        val b = n.boundsInScreen
+        val bounds = Rect()
+        n.getBoundsInScreen(bounds)
         a.put(JSONObject()
             .put("text", n.text?.toString())
             .put("contentDescription", n.contentDescription?.toString())
@@ -113,7 +116,7 @@ class DROAccessibilityService : AccessibilityService() {
             .put("enabled", n.isEnabled)
             .put("selected", n.isSelected)
             .put("editable", n.isEditable)
-            .put("bounds", JSONArray().put(b.left).put(b.top).put(b.right).put(b.bottom)))
+            .put("bounds", JSONArray().put(bounds.left).put(bounds.top).put(bounds.right).put(bounds.bottom)))
         for (i in 0 until n.childCount) n.getChild(i)?.let { walk(it, a) }
     }
 
@@ -132,6 +135,7 @@ class DROAccessibilityService : AccessibilityService() {
                     it.write(JSONObject().put("actionId", id).put("state", state).put("result", result).toString().toByteArray())
                 }
                 c.inputStream.close()
+                c.disconnect()
             } catch (_: Exception) {}
         }
     }
