@@ -57,7 +57,7 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  const isLong=tradeSide==='BUY';
  if(accountType==='SPOT'&&!isLong) throw new Error('Spot protection only supports a long BUY holding.');
  if(accountType==='FUTURES'&&!['BUY','SELL'].includes(tradeSide)) throw new Error('Unsupported Futures position direction.');
- const entry=num(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
+ const entry=Number(trade.average_fill_price??trade.submitted_price??trade.planned_entry);
  if(!entry||entry<=0) throw new Error('A verified entry price is required before protection can be placed.');
  if(isLong ? !(stopPrice<entry&&takeProfitPrice>entry) : !(stopPrice>entry&&takeProfitPrice<entry)) {
    throw new Error('Invalid protection direction: long positions need SL below entry and TP above entry; short positions need SL above entry and TP below entry.');
