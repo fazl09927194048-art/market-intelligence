@@ -46,6 +46,7 @@ class DigitalLabActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private var tab = "home"
     private var marketRows: List<LabMarket> = emptyList()
+    private var marketDataValid = false
     private var loading = false
     private var marketMessage = "برای دریافت قیمت‌ها، رفرش را بزن."
     private var marketFilter = ""
@@ -311,8 +312,9 @@ class DigitalLabActivity : AppCompatActivity() {
                     }
                 }
                 runOnUiThread {
-                    marketRows = fresh; loading = false
-                    marketMessage = if (fresh.isNotEmpty()) "دریافت شد • " + json.optString("provider", "market provider") + " • " + fresh.size + " نماد"
+                    marketRows = fresh; marketDataValid = json.optBoolean("dataValid", false); loading = false
+                    val warnings = json.optJSONArray("warnings")?.length() ?: 0
+                    marketMessage = if (fresh.isNotEmpty()) "دریافت شد • " + json.optString("provider", "market provider") + " • " + fresh.size + " نماد • " + (if (marketDataValid) "داده زنده معتبر" else "داده ناقص/برخی منابع نامعتبر") + " • هشدار: " + warnings
                         else "داده معتبر در دسترس نیست (HTTP " + code + ")"
                     updateStatus(); render()
                 }
@@ -328,8 +330,8 @@ class DigitalLabActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         if (!::status.isInitialized) return
-        status.text = if (marketRows.isEmpty()) "MARKET • CHECK" else "MARKET • OK"
-        status.setTextColor(if (marketRows.isEmpty()) LAB_GOLD else LAB_GREEN)
+        status.text = when { marketRows.isEmpty() -> "MARKET • CHECK"; marketDataValid -> "MARKET • LIVE"; else -> "MARKET • PARTIAL" }
+        status.setTextColor(if (marketRows.isNotEmpty() && marketDataValid) LAB_GREEN else LAB_GOLD)
     }
 
     private fun openUrl(url: String) {
