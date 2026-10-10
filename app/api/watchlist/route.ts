@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { consumeRateLimit } from '@/lib/request-guard';
-import { addCustomMarketSymbol, getCustomMarketSymbols } from '@/lib/shared-watchlist';
+import { addCustomMarketSymbol, getCustomMarketSymbols, removeCustomMarketSymbol } from '@/lib/shared-watchlist';
 import { clearMarketServiceCache } from '@/lib/market-provider';
 
 export const dynamic = 'force-dynamic';
@@ -39,6 +39,30 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error && error.message.includes('DATABASE_URL')
       ? error.message
       : 'Could not save the shared watchlist. Check database connectivity.';
+    return NextResponse.json({ ok: false, error: message }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const limit = consumeRateLimit(request, 'shared-watchlist-write', 5);
+  if (!limit.allowed) {
+    return NextResponse.json({ ok: false, error: 'Too many watchlist changes. Try again shortly.' }, {
+      status: 429, headers: { 'Retry-After': String(limit.retryAfter), 'Cache-Control': 'no-store' },
+    });
+  }
+  try {
+    const body = await request.json();
+    const symbol = typeof body?.symbol === 'string' ? body.symbol.trim().toUpperCase().replace(/USDT$/, '') : '';
+    if (!/^[A-Z0-9]{2,15}$/.test(symbol)) {
+      return NextResponse.json({ ok: false, error: 'Invalid ticker symbol.' }, { status: 400 });
+    }
+    const symbols = await removeCustomMarketSymbol(symbol);
+    clearMarketServiceCache();
+    return NextResponse.json({ ok: true, symbols, removed: symbol }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    const message = error instanceof Error && error.message.includes('DATABASE_URL')
+      ? error.message
+      : 'Could not update the shared watchlist. Check database connectivity.';
     return NextResponse.json({ ok: false, error: message }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
 }
