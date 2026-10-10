@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
 import { addCustomMarketSymbol, getCustomMarketSymbols, removeCustomMarketSymbol } from '@/lib/shared-watchlist';
 import { clearMarketServiceCache } from '@/lib/market-provider';
+import { getCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(request.headers.get('cookie'));
+  if (!user) return NextResponse.json({ ok: false, error: 'برای تغییر فهرست مشترک ابتدا وارد حساب کاربری شو.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
   const requestError = mutationRequestError(request);
   if (requestError) return requestError;
   const limit = consumeRateLimit(request, 'shared-watchlist-write', 5);
@@ -69,6 +72,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const user = await getCurrentUser(request.headers.get('cookie'));
+  if (!user) return NextResponse.json({ ok: false, error: 'برای تغییر فهرست مشترک ابتدا وارد حساب کاربری شو.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
   const requestError = mutationRequestError(request);
   if (requestError) return requestError;
   const limit = consumeRateLimit(request, 'shared-watchlist-write', 5);
