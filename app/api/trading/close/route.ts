@@ -65,7 +65,7 @@ export async function POST(req:NextRequest){
 
   await ensureExchangeSchema();
   const clientOrderId='FLI_CLOSE_'+crypto.randomBytes(12).toString('hex');
-  const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol,side:orderSide,type:'MARKET',quantity:quantity.toString(),...(accountType==='FUTURES'?{reduceOnly:true,leverage:1}:{}),newOrderRespType:'FULL',clientOrderId});
+  const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol,side:orderSide,type:'MARKET',quantity:quantity.toString(),...(accountType==='FUTURES'?{reduceOnly:true}:{}),newOrderRespType:'FULL',clientOrderId});
   const status=String(result.status||'ACKNOWLEDGED').toUpperCase();
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,exchangeId,symbol,orderSide,'MARKET',quantity,Number(result.avgPrice||result.price)||null,clientOrderId,String(result.orderId||''),status,result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'CLOSE_SUBMITTED',result]);
