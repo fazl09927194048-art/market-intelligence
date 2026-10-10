@@ -70,6 +70,11 @@ const adapter: ExchangeAdapter = {
       const payload = { ...p };
       // Spot quoteOrderQty is not a Futures order parameter.
       if (payload.quoteOrderQty !== undefined) throw new Error('quoteOrderQty is Spot-only; Futures requires an explicit quantity.');
+      const leverage = Number(payload.leverage);
+      delete payload.leverage;
+      if (!Number.isInteger(leverage) || leverage < 1 || leverage > 125) throw new Error('Futures order requires an explicit integer leverage from 1 to 125.');
+      // Apply leverage through Binance's dedicated endpoint; the order endpoint does not accept a leverage field.
+      await request(c, '/fapi/v1/leverage', 'POST', { symbol: String(payload.symbol || '').toUpperCase(), leverage }, true);
       return request(c, '/fapi/v1/order', 'POST', payload, true);
     }
     return request(c, '/api/v3/order', 'POST', p, true);
