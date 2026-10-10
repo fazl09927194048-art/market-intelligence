@@ -25,6 +25,11 @@ export async function POST(req:NextRequest){
    const cycle=await runIntelligenceCycle(symbol, String(b.interval||'15m')); intelligence=cycle;
    const plan=cycle.tradePlan;
    const requestedSide=side==='BUY'?'LONG':'SHORT';
+   // This adapter uses Binance Spot (/api/v3/order), not USD-M futures. A SELL cannot open a true short.
+   // Require the dedicated balance-aware close flow for autonomous exits; never mislabel spot sells as shorts.
+   if(requestedSide==='SHORT') {
+    return NextResponse.json({ok:false,error:'DRO autonomous short entries are disabled: the connected Binance adapter supports Spot trading only, not futures. Use the close-position flow to sell an existing spot holding, or add a separately audited futures adapter first.',droGuard:{status:'BLOCKED',reason:'SPOT_ADAPTER_DOES_NOT_SUPPORT_SHORTS'}},{status:409});
+   }
    const confidence=Number(plan?.confidence||0);
    const rr=Number(plan?.riskReward||0);
    const entry=Number(plan?.entry);
