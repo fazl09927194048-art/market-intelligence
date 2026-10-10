@@ -14,6 +14,7 @@ export async function POST(req:NextRequest){
   const userId=await getSessionUserId(); const b=await req.json();
   const exchangeId=String(b.exchangeId||''), symbol=String(b.symbol||'').toUpperCase(), side=String(b.side||'').toUpperCase(), type=String(b.type||'MARKET').toUpperCase();
   const quantity=num(b.quantity), quoteQuantity=num(b.quoteOrderQty), price=num(b.price);
+  if(quantity!==undefined&&quantity>0&&quoteQuantity!==undefined&&quoteQuantity>0) return NextResponse.json({ok:false,error:'Provide either quantity or quoteOrderQty, not both; mixing them can misstate risk and cause exchange rejection.'},{status:400});
   if(!exchangeId||!/^[A-Z0-9]{2,20}$/.test(symbol)||!['BUY','SELL'].includes(side)||!['MARKET','LIMIT'].includes(type)) return NextResponse.json({ok:false,error:'Invalid order parameters.'},{status:400});
   if((quantity===undefined||quantity<=0)&&(quoteQuantity===undefined||quoteQuantity<=0)) return NextResponse.json({ok:false,error:'A positive quantity or quoteOrderQty is required.'},{status:400});
   if(type==='LIMIT'&&(price===undefined||price<=0)) return NextResponse.json({ok:false,error:'A valid limit price is required.'},{status:400});
