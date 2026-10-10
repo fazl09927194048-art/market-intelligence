@@ -88,6 +88,10 @@ export async function POST(req:NextRequest){
   const clientOrderId='FLI_CLOSE_'+crypto.randomBytes(12).toString('hex');
   const result=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol,side:orderSide,type:'MARKET',quantity:quantity.toString(),...(accountType==='FUTURES'?{reduceOnly:true}:{}),newOrderRespType:'FULL',clientOrderId});
   const status=String(result.status||'ACKNOWLEDGED').toUpperCase();
+  if(['REJECTED','CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH'].includes(status)){
+   await audit({userId,action:'CLOSE_POSITION_REJECTED',exchange:x.record.name,symbol,orderId:String(result.orderId||clientOrderId),source:'DRO_TOOL',result:'Exchange returned a terminal non-fill status for the close order; no closing trade was recorded.',status});
+   return NextResponse.json({ok:false,error:'Exchange did not accept the close order ('+status+'). No closing trade was recorded.',exchangeStatus:status},{status:502});
+  }
   const inserted=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",[userId,exchangeId,symbol,orderSide,'MARKET',quantity,Number(result.avgPrice||result.price)||null,clientOrderId,String(result.orderId||''),status,result]);
   await db().query("INSERT INTO order_events(order_id,from_status,to_status,event,raw) VALUES($1,$2,$3,$4,$5)",[inserted.rows[0].id,'CREATED',status,'CLOSE_SUBMITTED',result]);
   const tradeId=await createTradeForOrder({userId,exchangeId,orderId:inserted.rows[0].id,exchangeOrderId:String(result.orderId||''),clientOrderId,symbol,side:orderSide,executionMode:'AUTONOMOUS',quantity,parentTradeId});
