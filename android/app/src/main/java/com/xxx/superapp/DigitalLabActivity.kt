@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.view.Gravity
 import android.widget.*
@@ -32,6 +34,14 @@ class DigitalLabActivity : AppCompatActivity() {
     private val serverUrl: String get() = prefs.getString("server_url", "https://market-intelligence-840b.onrender.com").orEmpty().trim().trimEnd('/')
     private val prefs by lazy { getSharedPreferences("dro_control", Context.MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val autoRefreshTask = object : Runnable {
+        override fun run() {
+            if (prefs.getBoolean("auto_refresh", true) && !isFinishing) refreshMarkets()
+            val seconds = prefs.getString("refresh_seconds", "60")?.toLongOrNull() ?: 60L
+            mainHandler.postDelayed(this, seconds.coerceIn(15L, 600L) * 1000L)
+        }
+    }
     private lateinit var page: LinearLayout
     private lateinit var status: TextView
     private var tab = "home"
@@ -49,6 +59,13 @@ class DigitalLabActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (::status.isInitialized) updateStatus()
+        mainHandler.removeCallbacks(autoRefreshTask)
+        mainHandler.postDelayed(autoRefreshTask, 15000L)
+    }
+
+    override fun onPause() {
+        mainHandler.removeCallbacks(autoRefreshTask)
+        super.onPause()
     }
 
     private fun shell() {
@@ -364,6 +381,7 @@ class DigitalLabActivity : AppCompatActivity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(autoRefreshTask)
         worker.shutdownNow()
         super.onDestroy()
     }
