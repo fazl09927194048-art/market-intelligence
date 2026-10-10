@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { consumeRateLimit } from '@/lib/request-guard';
 import { addCustomMarketSymbol, getCustomMarketSymbols } from '@/lib/shared-watchlist';
+import { clearMarketServiceCache } from '@/lib/market-provider';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Enter a valid base symbol, e.g. BTC, ETH, or SUI.' }, { status: 400 });
     }
     const symbols = await addCustomMarketSymbol(symbol);
+    clearMarketServiceCache();
     return NextResponse.json({ ok: true, symbol, symbols, message: 'Saved to the shared watchlist. Market data appears when a provider supports this symbol.' }, {
       headers: { 'Cache-Control': 'no-store' },
     });
