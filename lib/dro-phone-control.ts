@@ -108,7 +108,7 @@ export async function getPhoneOverview(userId:string){
  await schema(d);
  const q=await d.query(`SELECT id,device_id,name,platform,trusted,revoked,last_seen_at,created_at FROM devices WHERE user_id=$1 ORDER BY created_at DESC LIMIT 1`,[userId]);
  const device=q.rows[0]||null;
- const s=device?await d.query(`SELECT id,mode,status,emergency_stopped,created_at FROM dro_phone_sessions WHERE user_id=$1 AND device_id=$2 AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1`,[userId,device.id]):{rows:[]};
+ const s=device?await d.query(`SELECT id,session_id,mode,status,emergency_stopped,created_at FROM dro_phone_sessions WHERE user_id=$1 AND device_id=$2 AND ended_at IS NULL ORDER BY created_at DESC LIMIT 1`,[userId,device.id]):{rows:[]};
  return {configured:Boolean(device),device:device?{...device,id:String(device.id),lastSeenAt:device.last_seen_at?.toISOString()||null}:null,session:s.rows[0]||null};
 }
 export async function createPhoneSession(userId:string,mode:string='ASSIST'){
