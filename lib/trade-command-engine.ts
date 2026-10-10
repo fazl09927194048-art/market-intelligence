@@ -87,8 +87,10 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
  if(mode==='CONFIRM') return {mode,requiresConfirmation:true,verified:false,payload};
  if(mode!=='AUTONOMOUS'||!risk.autonomous_enabled||process.env.FLI_LIVE_TRADING_ENABLED!=='true') throw new Error('Live protection is not enabled by the current execution policy.');
  const existingProtection=await db().query("SELECT status,stop_order_id,take_profit_order_id FROM trade_protection WHERE trade_id=$1 LIMIT 1",[tradeId]);
- const protectionState=String(existingProtection.rows[0]?.status||'').toUpperCase();
- if(['PROTECTED','RECONCILIATION_REQUIRED','PROTECTION_PENDING'].includes(protectionState)) throw new Error('Existing protection is already recorded or unresolved. Reconcile/cancel existing exchange orders before submitting new protection to avoid duplicate exit orders.');
+ const existingRow=existingProtection.rows[0];
+ const protectionState=String(existingRow?.status||'').toUpperCase();
+ const hasExistingOrder=Boolean(String(existingRow?.stop_order_id||'')||String(existingRow?.take_profit_order_id||''));
+ if(protectionState==='PROTECTED'||(['RECONCILIATION_REQUIRED','PROTECTION_PENDING'].includes(protectionState)&&hasExistingOrder)) throw new Error('Existing protection is already recorded or unresolved. Reconcile/cancel existing exchange orders before submitting new protection to avoid duplicate exit orders.');
  const stopClient='FLI_SL_'+crypto.randomBytes(10).toString('hex'), tpClient='FLI_TP_'+crypto.randomBytes(10).toString('hex');
  let stop:any;
  try{stop=await exchangeManager.createOrder(x.record.name,x.credentials,{symbol:trade.symbol,side:exitSide,...reduceOnly,type:'STOP_LOSS_LIMIT',timeInForce:'GTC',quantity:String(qty),price:String(stopPrice),stopPrice:String(stopPrice),newOrderRespType:'FULL',clientOrderId:stopClient});}
