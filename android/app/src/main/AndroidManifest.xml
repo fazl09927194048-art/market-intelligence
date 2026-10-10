@@ -6,20 +6,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <application android:allowBackup="true" android:label="xXx DRO" android:theme="@style/Theme.xXx">
-        <activity android:name=".MainActivity" android:exported="true">
+    <application android:allowBackup="true" android:label="DRO Digital Lab" android:theme="@style/Theme.xXx">
+        <activity android:name=".DigitalLabActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".MainActivity" android:exported="false" />
         <service android:name=".DROOverlayService" android:exported="false" android:foregroundServiceType="specialUse" android:stopWithTask="false">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="user-enabled floating DRO dashboard overlay" />
         </service>
-    <service android:name=".DROAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="false">
- <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
- <meta-data android:name="android.accessibilityservice" android:resource="@xml/dro_accessibility_service" />
-</service>
-<service android:name=".ScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
-</application>
+        <service android:name=".DROAccessibilityService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="false">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/dro_accessibility_service" />
+        </service>
+        <service android:name=".ScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
+    </application>
 </manifest>
