@@ -126,13 +126,28 @@ export async function executeProtectionCommand(userId:string,tradeId:string,stop
    throw firstError;
   }
  }
- const stopStatus=String(stop?.status||'').toUpperCase(), tpStatus=String(tp?.status||'').toUpperCase();
- const verifiedStop=stopStatus==='NEW'||stopStatus==='PENDING_NEW';
- const verifiedTp=tpStatus==='NEW'||tpStatus==='PENDING_NEW';
+ let stopStatus='',tpStatus='',verifiedStop=false,verifiedTp=false;
+ try{
+  const result=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(stop?.orderId||'')||undefined,stopClient);
+  stop={...stop,...result};stopStatus=String(result?.status||result?.orderStatus||'').toUpperCase();verifiedStop=['NEW','PENDING_NEW'].includes(stopStatus);
+ }catch{}
+ try{
+  const result=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(tp?.orderId||'')||undefined,tpClient);
+  tp={...tp,...result};tpStatus=String(result?.status||result?.orderStatus||'').toUpperCase();verifiedTp=['NEW','PENDING_NEW'].includes(tpStatus);
+ }catch{}
  if(!verifiedStop||!verifiedTp){
-  try{if(stop?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop.orderId));}catch{}
-  try{if(tp?.orderId)await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(tp.orderId));}catch{}
-  throw new Error('Exchange did not confirm both protection orders as active; position was not marked PROTECTED.');
+  let stopCancelled=!stop?.orderId&&!stopClient,tpCancelled=!tp?.orderId&&!tpClient;
+  try{const result=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(stop?.orderId||'')||undefined,stopClient);stopCancelled=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||'').toUpperCase());}catch{}
+  if(!stopCancelled){try{const result=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(stop?.orderId||'')||undefined,stopClient);stopCancelled=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||result?.orderStatus||'').toUpperCase());}catch{}}
+  try{const result=await exchangeManager.cancel(x.record.name,x.credentials,trade.symbol,String(tp?.orderId||'')||undefined,tpClient);tpCancelled=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||'').toUpperCase());}catch{}
+  if(!tpCancelled){try{const result=await exchangeManager.status(x.record.name,x.credentials,trade.symbol,String(tp?.orderId||'')||undefined,tpClient);tpCancelled=['CANCELED','CANCELLED','EXPIRED','EXPIRED_IN_MATCH','REJECTED'].includes(String(result?.status||result?.orderStatus||'').toUpperCase());}catch{}}
+  if(!stopCancelled||!tpCancelled){
+   await db().query("INSERT INTO trade_protection(trade_id,stop_order_id,take_profit_order_id,stop_price,take_profit_price,status,updated_at) VALUES($1,$2,$3,$4,$5,'RECONCILIATION_REQUIRED',now()) ON CONFLICT(trade_id) DO UPDATE SET stop_order_id=EXCLUDED.stop_order_id,take_profit_order_id=EXCLUDED.take_profit_order_id,status='RECONCILIATION_REQUIRED',updated_at=now()",[tradeId,String(stop?.orderId||stopClient),String(tp?.orderId||tpClient),stopPrice,takeProfitPrice]);
+   await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1",[tradeId]);
+   await audit({userId,action:'PROTECTION_RECONCILIATION_REQUIRED',exchange:x.record.name,symbol:trade.symbol,orderId:String(stop?.orderId||stopClient),source:'DRO_TOOL',result:'Protection orders were not both verified active and cancellation could not be confirmed.',status:'RECONCILIATION_REQUIRED'});
+   throw new Error('Protection orders could not both be verified active and cancellation of every possible live order could not be confirmed. Immediate exchange reconciliation is required.');
+  }
+  throw new Error('Exchange did not confirm both protection orders active. Cancellation was confirmed; no protected state was recorded.');
  }
  try{
  const sp=await db().query("INSERT INTO orders(user_id,exchange_id,symbol,side,type,quantity,price,client_order_id,exchange_order_id,status,raw) VALUES($1,$2,$3,$4,'STOP_LOSS_LIMIT',$5,$6,$7,$8,$9,$10) RETURNING id",[userId,trade.exchange_id,trade.symbol,exitSide,qty,stopPrice,stopClient,String(stop?.orderId||''),stopStatus,stop]);
