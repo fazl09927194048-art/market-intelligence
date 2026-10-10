@@ -8,10 +8,12 @@ import {runIntelligenceCycle} from '@/lib/intelligence-loop';
 import {createTradeForOrder} from '@/lib/trade-lifecycle';
 import {calculateDynamicRisk} from '@/lib/dynamic-risk-engine';
 export const dynamic='force-dynamic';
+function sameOrigin(req:NextRequest){const origin=req.headers.get('origin');if(!origin)return true;try{return new URL(origin).host.toLowerCase()===req.nextUrl.host.toLowerCase();}catch{return false;}}
 function num(v:unknown){const n=Number(v);return Number.isFinite(n)?n:undefined}
 function requestedSideForOrder(side:string){return side==='BUY'?'LONG':'SHORT'}
 export async function POST(req:NextRequest){
  try{
+  if(!sameOrigin(req)) return NextResponse.json({ok:false,error:'Cross-origin trading requests are blocked.'},{status:403});
   const userId=await getSessionUserId(); const b=await req.json();
   const exchangeId=String(b.exchangeId||''), symbol=String(b.symbol||'').toUpperCase(), side=String(b.side||'').toUpperCase(), type=String(b.type||'MARKET').toUpperCase();
   const quantity=num(b.quantity), quoteQuantity=num(b.quoteOrderQty), price=num(b.price);
