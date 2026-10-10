@@ -53,6 +53,9 @@ export async function POST(req:NextRequest){
   if(Array.isArray(risk.allowed_symbols)&&risk.allowed_symbols.length&&!risk.allowed_symbols.includes(symbol)) return NextResponse.json({ok:false,error:'Symbol is blocked by the active risk policy.'},{status:403});
   const x=await getExchange(userId,exchangeId);
   const accountType=String(x.record.account_type||'SPOT').toUpperCase();
+  if(accountType==='FUTURES' && (quoteQuantity!==undefined || quantity===undefined)) {
+    return NextResponse.json({ok:false,error:'Futures orders require an explicit base-asset quantity; quoteOrderQty is Spot-only.'},{status:400});
+  }
   if(droGuard && requestedSideForOrder(side)==='SHORT' && accountType!=='FUTURES') {
     return NextResponse.json({ok:false,error:'Opening a short requires a Futures connection. Spot SELL orders only sell owned assets.',droGuard:{status:'BLOCKED',reason:'SPOT_ADAPTER_DOES_NOT_SUPPORT_SHORTS'}},{status:409});
   }
