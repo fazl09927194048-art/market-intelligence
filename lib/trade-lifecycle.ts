@@ -155,6 +155,45 @@ export async function reconcileOrderLifecycle(userId:string,exchangeId:string,sy
    }
   }
  }
+ // Protective orders are stored separately from entry-order lifecycle rows. Reconcile them explicitly
+ // so a triggered/canceled stop or take-profit cannot leave a trade falsely marked PROTECTED.
+ try{
+  const protections=await db().query("SELECT p.trade_id,p.stop_order_id,p.take_profit_order_id,t.symbol,t.state AS trade_state,t.exchange_id FROM trade_protection p JOIN trades t ON t.id=p.trade_id WHERE t.user_id=$1 AND t.exchange_id=$2 AND p.status='PROTECTED' AND t.state NOT IN ('CLOSED','CANCELED','CANCELLED','REJECTED','FAILED','EXPIRED') ORDER BY p.updated_at ASC LIMIT 100",[userId,exchangeId]);
+  for(const protection of protections.rows){
+   try{
+    if(!protection.stop_order_id||!protection.take_profit_order_id) throw new Error('One or more protection order IDs are missing.');
+    const [stop,tp]=await Promise.all([
+     exchangeManager.status(x.record.name,x.credentials,protection.symbol,String(protection.stop_order_id)),
+     exchangeManager.status(x.record.name,x.credentials,protection.symbol,String(protection.take_profit_order_id))
+    ]);
+    const ss=String(stop?.status||stop?.orderStatus||'UNKNOWN').toUpperCase();
+    const ts=String(tp?.status||tp?.orderStatus||'UNKNOWN').toUpperCase();
+    const active=(s:string)=>s==='NEW'||s==='PENDING_NEW';
+    if(active(ss)&&active(ts)){continue;}
+    if(ss==='FILLED'||ts==='FILLED'){
+     const siblingId=ss==='FILLED'?protection.take_profit_order_id:protection.stop_order_id;
+     if(siblingId) await cancelProtectionOrderSet(x.record.name,x.credentials,protection.symbol,[siblingId]);
+     await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[protection.trade_id]);
+     await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','REJECTED','FAILED')",[protection.trade_id]);
+     await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_TRIGGERED','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[protection.trade_id,userId,'A protective order was filled. DRO has stopped claiming the position is protected and requires exchange-position reconciliation before further automated actions.','PROTECTION_TRIGGERED:'+protection.trade_id]);
+     await db().query("INSERT INTO trade_events(trade_id,previous_state,new_state,event,actor,reason,raw) VALUES($1,$2,$3,$4,$5,$6,$7)",[protection.trade_id,protection.trade_state,'RECONCILIATION_REQUIRED','PROTECTION_ORDER_FILLED','system','A stop-loss or take-profit order filled; reconcile the actual exchange position.',{stopStatus:ss,takeProfitStatus:ts}]);
+     events++;
+    }else{
+     const activeIds=[active(ss)?protection.stop_order_id:null,active(ts)?protection.take_profit_order_id:null].filter(Boolean);
+     if(activeIds.length) await cancelProtectionOrderSet(x.record.name,x.credentials,protection.symbol,activeIds);
+     await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[protection.trade_id]);
+     await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','REJECTED','FAILED')",[protection.trade_id]);
+     await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[protection.trade_id,userId,'One or more protection orders are no longer confirmed active. Automated management is paused until the exchange state is reconciled.','PROTECTION_STATE_UNKNOWN:'+protection.trade_id]);
+     errors.push(protection.symbol+': protection orders not both active ('+ss+'/'+ts+').');
+    }
+   }catch(e){
+    await db().query("UPDATE trade_protection SET status='RECONCILIATION_REQUIRED',updated_at=now() WHERE trade_id=$1",[protection.trade_id]);
+    await db().query("UPDATE trades SET state='RECONCILIATION_REQUIRED',updated_at=now() WHERE id=$1 AND state NOT IN ('CLOSED','CANCELED','CANCELLED','REJECTED','FAILED')",[protection.trade_id]);
+    await db().query("INSERT INTO trade_alerts(trade_id,user_id,alert_type,severity,message,dedupe_key) VALUES($1,$2,'PROTECTION_REVIEW','CRITICAL',$3,$4) ON CONFLICT(user_id,dedupe_key) DO NOTHING",[protection.trade_id,userId,'Could not verify exchange protection orders. Automatic management is paused until connectivity and order state are checked.','PROTECTION_LOOKUP_FAILED:'+protection.trade_id]);
+    errors.push(protection.symbol+': protection verification failed: '+(e instanceof Error?e.message:'unknown error'));
+   }
+  }
+ }catch(e){errors.push('protection-sync:'+ (e instanceof Error?e.message:'query failed'));}
  return{checked:rows.rows.length,updated,events,open,terminal,errors,checkedAt:new Date().toISOString()};
 }
 
