@@ -100,12 +100,14 @@ class MainActivity : AppCompatActivity() {
         val pair = Button(this).apply { text = "Pair this Android once" }
         val setup = Button(this).apply { text = "Run one-time permission setup" }
         val overlay = Button(this).apply { text = "Start DRO floating service" }
+        val accessibility = Button(this).apply { text = "Enable DRO accessibility control" }
         val screen = Button(this).apply { text = "Share live screen with DRO" }
         pair.setOnClickListener { pairDevice(code.text.toString()) }
         setup.setOnClickListener { openMissingPermission() }
+        accessibility.setOnClickListener { openAccessibilitySettings() }
         overlay.setOnClickListener { enableOverlay() }
         screen.setOnClickListener { requestScreenCapture() }
-        root.addView(title); root.addView(status); root.addView(code); root.addView(pair); root.addView(setup); root.addView(overlay); root.addView(screen)
+        root.addView(title); root.addView(status); root.addView(code); root.addView(pair); root.addView(setup); root.addView(accessibility); root.addView(overlay); root.addView(screen)
         setContentView(root)
         updateStatus()
     }
@@ -115,9 +117,24 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus() {
         val trusted = secureDeviceToken(this) != null
         val overlay = Settings.canDrawOverlays(this)
-        status.text = "Pairing: " + if (trusted) "TRUSTED ✓" else "NOT PAIRED" +
-            "\nOverlay: " + if (overlay) "READY ✓" else "NEEDED" +
+        val accessibility = isAccessibilityEnabled()
+        val notifications = android.os.Build.VERSION.SDK_INT < 33 ||
+            checkSelfPermission("android.permission.POST_NOTIFICATIONS") == android.content.pm.PackageManager.PERMISSION_GRANTED
+        status.text = "Pairing: " + (if (trusted) "TRUSTED ✓" else "NOT PAIRED") +
+            "\nOverlay: " + (if (overlay) "READY ✓" else "NEEDED") +
+            "\nAccessibility control: " + (if (accessibility) "ENABLED ✓" else "NEEDED") +
+            "\nNotifications: " + (if (notifications) "READY ✓" else "NEEDED") +
             "\nServer: " + serverUrl
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+        return enabled.split(":").any { it.equals("$packageName/com.xxx.superapp.DROAccessibilityService", ignoreCase = true) }
+    }
+
+    private fun openAccessibilitySettings() {
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        Toast.makeText(this, "DRO Accessibility را در فهرست پیدا کن، فعال کن و برگرد.", Toast.LENGTH_LONG).show()
     }
 
     private fun deviceId(): String {
