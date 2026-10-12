@@ -3,7 +3,7 @@ import {getDeviceToken} from '@/lib/dro-phone-control';
 import {Pool} from 'pg';
 let pool:Pool|null=null;
 function db(){if(!process.env.DATABASE_URL)return null;if(!pool)pool=new Pool({connectionString:process.env.DATABASE_URL,max:5,ssl:process.env.DATABASE_SSL==='false'?false:{rejectUnauthorized:false}});return pool}
-function token(req:NextRequest){return(req.headers.get('authorization')||'').replace(/^Bearer\\s+/,'')}
+function token(req:NextRequest){const value=req.headers.get('authorization')||'';return value.startsWith('Bearer ')?value.slice(7).trim():''}
 export async function GET(req:NextRequest){
  const d=await getDeviceToken(token(req)); if(!d)return NextResponse.json({ok:false,error:'DEVICE_UNAUTHORIZED'},{status:401});
  const database=db(); if(!database)return NextResponse.json({ok:false,error:'DATABASE_NOT_CONFIGURED'},{status:503});
