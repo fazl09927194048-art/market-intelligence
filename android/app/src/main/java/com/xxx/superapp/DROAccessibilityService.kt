@@ -10,19 +10,28 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class DROAccessibilityService : AccessibilityService() {
     private val executor = Executors.newSingleThreadExecutor()
+    private val poller: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
+    private val pollInFlight = AtomicBoolean(false)
     private val server = "https://market-intelligence-840b.onrender.com"
 
-    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {
-        if (event != null) poll()
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        poller.scheduleWithFixedDelay({ poll() }, 0, 2, TimeUnit.SECONDS)
     }
+
+    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) { /* Polling is independent of UI events. */ }
 
     override fun onInterrupt() {}
 
     private fun poll() {
         val token = secureDeviceToken(this) ?: return
+        if (!pollInFlight.compareAndSet(false, true)) return
         executor.execute {
             try {
                 val c = URL("$server/api/phone-control/device/actions").openConnection() as HttpURLConnection
@@ -33,7 +42,7 @@ class DROAccessibilityService : AccessibilityService() {
                 if (c.responseCode !in 200..299) return@execute
                 val actions = JSONObject(c.inputStream.bufferedReader().readText()).optJSONArray("actions") ?: return@execute
                 for (i in 0 until actions.length()) execute(actions.getJSONObject(i))
-            } catch (_: Exception) {}
+            } catch (_: Exception) {} finally { pollInFlight.set(false) }
         }
     }
 
@@ -137,6 +146,7 @@ class DROAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        poller.shutdownNow()
         executor.shutdownNow()
         super.onDestroy()
     }
