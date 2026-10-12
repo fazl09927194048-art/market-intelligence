@@ -50,37 +50,48 @@ class DROAccessibilityService : AccessibilityService() {
         val id = a.optString("id")
         val p = a.optJSONObject("payload") ?: JSONObject()
         try {
+            var asyncGesture = false
             when (a.optString("action_type")) {
-                "BACK" -> performGlobalAction(GLOBAL_ACTION_BACK)
-                "HOME" -> performGlobalAction(GLOBAL_ACTION_HOME)
-                "RECENT" -> performGlobalAction(GLOBAL_ACTION_RECENTS)
-                "TAP" -> gesture(60, p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), p.optDouble("x").toFloat(), p.optDouble("y").toFloat())
-                "LONG_PRESS" -> gesture(700, p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), p.optDouble("x").toFloat(), p.optDouble("y").toFloat())
+                "BACK" -> if (!performGlobalAction(GLOBAL_ACTION_BACK)) throw IllegalStateException("BACK_REJECTED")
+                "HOME" -> if (!performGlobalAction(GLOBAL_ACTION_HOME)) throw IllegalStateException("HOME_REJECTED")
+                "RECENT" -> if (!performGlobalAction(GLOBAL_ACTION_RECENTS)) throw IllegalStateException("RECENT_REJECTED")
+                "TAP" -> { asyncGesture = true; gesture(60, p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), id) }
+                "LONG_PRESS" -> { asyncGesture = true; gesture(700, p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), p.optDouble("x").toFloat(), p.optDouble("y").toFloat(), id) }
                 "SWIPE", "SCROLL" -> {
                     val x1 = p.optDouble("x1", p.optDouble("x")).toFloat()
                     val y1 = p.optDouble("y1", p.optDouble("y")).toFloat()
+                    asyncGesture = true
                     gesture(
                         p.optLong("durationMs", 450),
                         x1, y1,
                         p.optDouble("x2", x1.toDouble()).toFloat(),
-                        p.optDouble("y2", y1.toDouble()).toFloat()
+                        p.optDouble("y2", y1.toDouble()).toFloat(),
+                        id
                     )
                 }
                 "TYPE_TEXT" -> typeText(p.optString("text"))
                 else -> throw IllegalArgumentException("UNSUPPORTED_ACTION")
             }
-            report(id, "SUCCESS", JSONObject().put("verified", true))
+            if (!asyncGesture) report(id, "SUCCESS", JSONObject().put("verified", true))
         } catch (e: Exception) {
             report(id, "FAILED", JSONObject().put("error", e.message ?: "ACTION_FAILED"))
         }
     }
 
-    private fun gesture(d: Long, x1: Float, y1: Float, x2: Float, y2: Float) {
+    private fun gesture(d: Long, x1: Float, y1: Float, x2: Float, y2: Float, actionId: String) {
         val path = Path().apply { moveTo(x1, y1); lineTo(x2, y2) }
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, d.coerceIn(40, 3000)))
             .build()
-        if (!dispatchGesture(g, null, null)) throw IllegalStateException("GESTURE_REJECTED")
+        val accepted = dispatchGesture(g, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                report(actionId, "SUCCESS", JSONObject().put("verified", true).put("gestureCompleted", true))
+            }
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                report(actionId, "FAILED", JSONObject().put("error", "GESTURE_CANCELLED"))
+            }
+        }, null)
+        if (!accepted) throw IllegalStateException("GESTURE_REJECTED")
     }
 
     private fun typeText(s: String) {
