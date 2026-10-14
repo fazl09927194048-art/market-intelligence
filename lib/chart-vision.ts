@@ -27,6 +27,8 @@ export type ImageTradePlan = {
   takeProfits: number[];
   stopLossPct: number | null;
   takeProfitPcts: number[];
+  stopLossPnlPer1000Usd: number | null;
+  takeProfitPnlPer1000Usd: number[];
   riskReward: number | null;
   basis: 'IMAGE_VISIBLE_LEVELS'|'INSUFFICIENT_IMAGE_DATA';
   warnings: string[];
@@ -38,7 +40,7 @@ export function buildImageTradePlan(vision: VisionResult): ImageTradePlan {
   const resistances=(vision.resistance||[]).filter(Number.isFinite).sort((a,b)=>a-b);
   const side=vision.direction==='BULLISH'?'LONG':vision.direction==='BEARISH'?'SHORT':'NO TRADE';
   if(!vision.available || !Number.isFinite(p) || p<=0 || side==='NO TRADE' || vision.visualQuality<50 || vision.confidence<55){
-    return {available:false,side:'NO TRADE',entry:null,stopLoss:null,takeProfits:[],stopLossPct:null,takeProfitPcts:[],riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings:['Image evidence is insufficient for a numeric trade plan. Live DRO analysis remains the decision authority.']};
+    return {available:false,side:'NO TRADE',entry:null,stopLoss:null,takeProfits:[],stopLossPct:null,takeProfitPcts:[],stopLossPnlPer1000Usd:null,takeProfitPnlPer1000Usd:[],riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings:['Image evidence is insufficient for a numeric trade plan. Live DRO analysis remains the decision authority.']};
   }
   const warnings:string[]=[]; let sl:number|null=null; let tps:number[]=[];
   if(side==='LONG'){
@@ -52,11 +54,15 @@ export function buildImageTradePlan(vision: VisionResult): ImageTradePlan {
     if(r) sl=r+(r-p)*0.08;
     tps=s;
   }
-  if(sl===null || tps.length===0){warnings.push(sl===null?'No readable structural stop level was found; image-only SL is not confirmed.':'No readable structural take-profit level was found; image-only TP is not confirmed.'); return {available:false,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:sl===null?null:(side==='LONG'?(sl/p-1)*100:(1-sl/p)*100),takeProfitPcts:tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100),riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings};}
+  if(sl===null || tps.length===0){warnings.push(sl===null?'No readable structural stop level was found; image-only SL is not confirmed.':'No readable structural take-profit level was found; image-only TP is not confirmed.'); return {available:false,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:sl===null?null:(side==='LONG'?(sl/p-1)*100:(1-sl/p)*100),takeProfitPcts:tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100),stopLossPnlPer1000Usd:sl===null?null:(side==='LONG'?(sl/p-1)*100:(1-sl/p)*100)*10,takeProfitPnlPer1000Usd:tps.map(x=>(side==='LONG'?(x/p-1)*100:(1-x/p)*100)*10),riskReward:null,basis:'INSUFFICIENT_IMAGE_DATA',warnings};}
   const stopPct=side==='LONG'?(sl/p-1)*100:(1-sl/p)*100;
   const tpp=tps.map(x=>side==='LONG'?(x/p-1)*100:(1-x/p)*100);
-  const risk=Math.abs(p-sl); const rr=tps.length?Math.abs(tps[0]-p)/risk:null;
-  return {available:true,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:stopPct,takeProfitPcts:tpp,riskReward:rr,basis:'IMAGE_VISIBLE_LEVELS',warnings};
+  const risk=Math.abs(p-sl); const rr=tps.length&&risk>0?Math.abs(tps[0]-p)/risk:null;
+  if (!Number.isFinite(rr as number) || (rr as number) < 1.2) {
+    warnings.push('First visible target offers less than 1.2R; DRO must not promote this image-only setup as an actionable trade.');
+    return {available:false,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:stopPct,takeProfitPcts:tpp,stopLossPnlPer1000Usd:stopPct*10,takeProfitPnlPer1000Usd:tpp.map(x=>x*10),riskReward:rr,basis:'INSUFFICIENT_IMAGE_DATA',warnings};
+  }
+  return {available:true,side,entry:p,stopLoss:sl,takeProfits:tps,stopLossPct:stopPct,takeProfitPcts:tpp,stopLossPnlPer1000Usd:stopPct*10,takeProfitPnlPer1000Usd:tpp.map(x=>x*10),riskReward:rr,basis:'IMAGE_VISIBLE_LEVELS',warnings};
 }
 
 export async function analyzeChartImage(imageData:string,liveContext:unknown):Promise<VisionResult>{
