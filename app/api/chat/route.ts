@@ -257,7 +257,7 @@ export async function POST(request: NextRequest) {
     }
 
     const work = (async () => {
-      const responseCycle=imageData?{...centralIntelligence,chartVision}:centralIntelligence;
+      const responseCycle=imageData?{...centralIntelligence,chartVision,imageTradePlan}:centralIntelligence;
       const text = buildIndependentReply(responseCycle, message, Boolean(imageData), history);
       rememberConversation('assistant', text);
       return {
