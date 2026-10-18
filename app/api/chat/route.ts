@@ -179,6 +179,8 @@ export async function GET(request: NextRequest) {
     service: 'DRO Independent Intelligence',
     provider: 'internal-engine',
     configured: true,
+    chatProviderConfigured: Boolean(process.env.DRO_CHAT_API_KEY || process.env.OPENAI_API_KEY),
+    visionProviderConfigured: Boolean(process.env.DRO_VISION_API_KEY || process.env.OPENAI_API_KEY),
     apiKeyRequired: false,
     symbol,
     interval,
@@ -281,7 +283,7 @@ export async function POST(request: NextRequest) {
         body: {
           ok: true,
           text,
-          provider: 'internal-engine',
+          provider: generated.mode === 'provider' ? 'configured-chat-provider' : 'internal-engine',
           model: generated.mode === 'provider' ? (generated.provider || 'configured-chat-model') : 'DRO-INTERNAL-RULES',
           independent: generated.mode !== 'provider',
           generationMode: generated.mode,
