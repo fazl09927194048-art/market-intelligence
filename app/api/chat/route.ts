@@ -273,7 +273,8 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       const responseCycle=imageData?{...centralIntelligence,chartVision,imageTradePlan}:centralIntelligence;
-      const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);\n      const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
+      const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);
+      const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
       rememberConversation('assistant', text);
       return {
         status: 200,
