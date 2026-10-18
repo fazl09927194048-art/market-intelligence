@@ -94,6 +94,12 @@ function buildIndependentReply(cycle: any, message: string, imageAttached: boole
   const intent = detectIntent(message, history);
   const previous = history.length ? history[history.length - 1]?.text : '';
 
+  // A provider-free conversational fallback: answer simple conversational intents directly
+  // instead of dumping a full market report for every message.
+  if (intent === 'greeting') return 'سلام! من DRO هستم. سرویس تولید متن خارجی در دسترس نباشد هم موتور داخلی فعال می‌ماند. می‌توانم داده‌های بازار، اجماع تحلیلگران، ریسک و سناریوهای Entry/SL/TP را بررسی کنم. چه چیزی را بررسی کنیم؟';
+  if (intent === 'help') return 'در حالت مستقل می‌توانم: قیمت و وضعیت بازار را از داده‌های در دسترس بررسی کنم؛ سیگنال را همراه با دلیل و گیت ریسک توضیح بدهم؛ تصویر نمودار را در صورت فعال بودن Vision بررسی کنم؛ و وضعیت پلن معامله را گزارش کنم. پاسخ‌های گفت‌وگویی عمومی در این حالت محدودتر از سرویس تولید متن هستند. اجرای معامله هم فقط از مسیر مجاز و با توجه به حالت PAPER/CONFIRM/AUTONOMOUS انجام می‌شود.';
+  if (intent === 'followup' && /^(مرسی|ممنون|تشکر|thanks|thank you|اوکی|باشه|فهمیدم|خوبه)[.!؟ ]*$/i.test(message.trim())) return 'خواهش می‌کنم. اگر بخواهی، می‌توانم مرحله بعد را دقیق‌تر بررسی کنم؛ مثلاً دلیل تصمیم، سطوح Entry/SL/TP یا هشدارهای ریسک.';
+
   const lines = [
     intent === 'greeting' ? 'سلام، من DRO هستم. می‌توانم وضعیت بازار و دلیل تصمیم را بررسی کنم. بپرس چه چیزی می‌خواهی بدانیم.' :
       intent === 'help' ? 'می‌توانم داده زنده بازار، ساختار و سناریوها، ریسک، Entry/SL/TP و تصویر نمودار را بررسی کنم. برای دستورهای معاملاتی، حالت اجرای حساب را هم باید در نظر گرفت.' :
