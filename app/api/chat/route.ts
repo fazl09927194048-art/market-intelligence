@@ -69,7 +69,7 @@ async function executeCloseCommand(symbol:string,reason:string){
  const text=mode==='PAPER'?'در حالت PAPER، دستور بستن معامله شبیه‌سازی شد.':mode==='CONFIRM'?'دستور بستن آماده است و برای اجرای واقعی تأیید صریح لازم دارد.':'دستور بستن معامله برای اجرای واقعی ارسال شد.';
  return {ok:true,status:200,text,mode,intent:execution?.intent||null,order:execution?.order||null,execution,tradeId};
 }
-function detectIntent(message: string, history: any[]) {
+function detectIntent(message: string, history: any[]): 'greeting'|'help'|'price'|'why'|'trade'|'news'|'chart'|'followup'|'market' {
   const text = message.toLowerCase();
   if (/^(hi|hello|hey|سلام|درود|خوبی|چطوری)/.test(text)) return 'greeting';
   if (/help|کمک|چه کار|چی کار|قابلیت/.test(text)) return 'help';
