@@ -95,10 +95,9 @@ function buildIndependentReply(cycle: any, message: string, imageAttached: boole
   const previous = history.length ? history[history.length - 1]?.text : '';
 
   const lines = [
-    'DRO مستقل فعال است — بدون API Key و بدون وابستگی به مدل خارجی.',
-    intent === 'greeting' ? 'سلام. من DRO هستم. می‌توانم وضعیت بازار، قیمت، سیگنال، ریسک و دلیل تصمیم موتور را بررسی کنم.' :
-      intent === 'help' ? 'قابلیت‌های فعلی: تحلیل زنده بازار، قیمت، سناریو و ریسک، پلن Entry/SL/TP، پیگیری مکالمه و دریافت تصویر نمودار.' :
-      intent === 'followup' ? `این پاسخ ادامه پیام قبلی توست: «${previous.slice(0, 220)}»` : '',
+    intent === 'greeting' ? 'سلام، من DRO هستم. می‌توانم وضعیت بازار و دلیل تصمیم را بررسی کنم. بپرس چه چیزی می‌خواهی بدانیم.' :
+      intent === 'help' ? 'می‌توانم داده زنده بازار، ساختار و سناریوها، ریسک، Entry/SL/TP و تصویر نمودار را بررسی کنم. برای دستورهای معاملاتی، حالت اجرای حساب را هم باید در نظر گرفت.' :
+      intent === 'followup' ? `با توجه به گفت‌وگوی قبلی، ادامه را روی داده فعلی بازار می‌دهم. اگر منظورت بخش مشخصی از پاسخ قبلی است، نامش را بگو تا همان را دقیق‌تر بررسی کنم.` : '',
     '',
     `وضعیت داده: ${dataQuality} | ${cycle?.symbol || 'BTCUSDT'} | ${cycle?.interval || '15m'}`,
     `تصمیم موتور: ${direction} | اعتماد گیت‌شده: ${Number(cycle?.confidenceGate?.after ?? signal?.confidence ?? 0).toFixed(0)}%`,
@@ -154,6 +153,22 @@ function buildIndependentReply(cycle: any, message: string, imageAttached: boole
 
   lines.push('', 'این خروجی تحلیل مدل‌محور داخلی است و تضمین سود نیست. قبل از هر تصمیم، داده تازه و شرایط ابطال را دوباره بررسی کن.');
   return lines.join('\n');
+}
+
+async function generateConversationalReply(message:string,history:any[],cycle:any,chartVision:any,imageTradePlan:any):Promise<{text:string|null;mode:'provider'|'rules';provider?:string;error?:string}> {
+  const key=process.env.DRO_CHAT_API_KEY||process.env.OPENAI_API_KEY||'';
+  if(!key)return {text:null,mode:'rules',error:'CHAT_PROVIDER_NOT_CONFIGURED'};
+  const endpoint=(process.env.DRO_CHAT_ENDPOINT||'https://api.openai.com/v1/chat/completions').replace(/\\/$/,'');
+  const model=process.env.DRO_CHAT_MODEL||process.env.OPENAI_CHAT_MODEL||'gpt-4o-mini';
+  const system='You are DRO, the conversational intelligence interface for a crypto market-analysis platform. Answer the actual user message directly in the user’s language. Maintain multi-turn context, ask a concise clarification if needed, and never repeat a generic report unless asked. Treat supplied market data and chart-vision output as evidence, not guaranteed truth. Do not invent image readings, prices, trades, or probabilities. Never claim a trade was executed unless execution data explicitly confirms it. Distinguish market scenario P/L percentages from actual account P/L. For trade ideas, respect the risk gate and say NO TRADE when it blocks entry. You may discuss general topics beyond trading; be clear about the limits of the internal market engine.';
+  const payload={symbol:cycle?.symbol,interval:cycle?.interval,liveMarket:{price:cycle?.marketData?.futures?.price??cycle?.marketData?.spot?.price,regime:cycle?.intelligenceScore?.regime,dataValid:cycle?.dataValid,signal:cycle?.signal,tradePlan:cycle?.tradePlan,forecast:cycle?.forecast,consensus:cycle?.consensus,risk:cycle?.risk,invalidation:cycle?.invalidation,warnings:cycle?.warnings},chartVision:chartVision?{available:chartVision.available,direction:chartVision.direction,confidence:chartVision.confidence,visualQuality:chartVision.visualQuality,symbol:chartVision.symbol,timeframe:chartVision.timeframe,lastVisiblePrice:chartVision.lastVisiblePrice,trend:chartVision.trend,marketStructure:chartVision.marketStructure,support:chartVision.support,resistance:chartVision.resistance,patterns:chartVision.patterns,evidence:chartVision.evidence,uncertainty:chartVision.uncertainty,error:chartVision.error}:null,imageTradePlan};
+  try{
+    const response=await fetch(endpoint+'/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+key},body:JSON.stringify({model,temperature:0.3,max_tokens:1200,messages:[{role:'system',content:system},{role:'system',content:'Current structured context: '+JSON.stringify(payload)},...history.slice(-10).map((m:any)=>({role:m.role==='assistant'?'assistant':'user',content:String(m.text||'').slice(0,3000)})),{role:'user',content:message||'Please analyze the uploaded chart using the supplied vision evidence.'}]}),cache:'no-store',signal:AbortSignal.timeout(18000)});
+    if(!response.ok)throw new Error('chat provider returned HTTP '+response.status);
+    const data:any=await response.json();const text=typeof data?.choices?.[0]?.message?.content==='string'?data.choices[0].message.content.trim():'';
+    if(!text)throw new Error('chat provider returned an empty answer');
+    return {text,mode:'provider',provider:model};
+  }catch(error){return {text:null,mode:'rules',error:error instanceof Error?error.message:'CHAT_PROVIDER_FAILED'};}
 }
 
 export async function GET(request: NextRequest) {
@@ -258,7 +273,7 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       const responseCycle=imageData?{...centralIntelligence,chartVision,imageTradePlan}:centralIntelligence;
-      const text = buildIndependentReply(responseCycle, message, Boolean(imageData), history);
+      const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);\n      const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
       rememberConversation('assistant', text);
       return {
         status: 200,
@@ -266,7 +281,7 @@ export async function POST(request: NextRequest) {
           ok: true,
           text,
           provider: 'internal-engine',
-          model: 'DRO-INTERNAL',
+          model: generated.mode === 'provider' ? (generated.provider || 'configured-chat-model') : 'DRO-INTERNAL-RULES',
           independent: true,
           apiKeyRequired: false,
           imageAttached: Boolean(imageData),
