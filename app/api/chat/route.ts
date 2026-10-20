@@ -60,8 +60,8 @@ function isCloseCommand(message:string){
   const t=message.trim().toLowerCase().replace(/[.!؟]+$/,'').trim();
   // Only explicit imperative commands may reach the trade-execution path.
   // Questions or explanations that merely mention "close"/"sell" must stay conversational.
-  if (/^(?:please\\s+)?(?:close|exit|sell)(?:\\s+(?:the\\s+)?(?:position|trade|my position|my trade|now|it|half|50%|btc(?:usdt)?|eth(?:usdt)?|[a-z0-9]{3,12}))*$/i.test(t)) return true;
-  return /^(?:لطفاً\\s*)?(?:معامله(?: را)? ببند|ببند(?:ش)?|بستن معامله|خارج شو|خروج بزن)(?:\\s+[A-Z0-9]{3,12})?$/i.test(t);
+  if (/^(?:please\s+)?(?:close|exit|sell)(?:\s+(?:the\s+)?(?:position|trade|my position|my trade|now|it|half|50%|btc(?:usdt)?|eth(?:usdt)?|[a-z0-9]{3,12}))*$/i.test(t)) return true;
+  return /^(?:لطفاً\s*)?(?:معامله(?: را)? ببند|ببند(?:ش)?|بستن معامله|خارج شو|خروج بزن)(?:\s+[A-Z0-9]{3,12})?$/i.test(t);
 }
 async function executeCloseCommand(symbol:string,reason:string){
  const userId=await getSessionUserId();
