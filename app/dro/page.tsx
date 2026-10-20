@@ -49,12 +49,12 @@ export default function DROChatPage() {
       if (!response.ok) throw new Error(data?.error || (fa ? 'پاسخ از DRO دریافت نشد.' : 'DRO could not respond.'));
       let reply = String(data?.text || data?.answer || (fa ? 'پاسخ متنی دریافت نشد.' : 'No text response was returned.'));
       if (data?.tradePlan) reply += '\n\n' + (fa ? 'خلاصه برنامه معامله' : 'Trade plan') + ':\n' + JSON.stringify(data.tradePlan, null, 2);
-      setMessages(prev => [...prev, { role: 'assistant', text: reply, time: Date.now() }].slice(-80));
+      setMessages(prev => [...prev, { role: 'assistant' as const, text: reply, time: Date.now() }].slice(-80));
       setStatus(data?.generationMode === 'provider' ? 'DRO · model connected' : 'DRO · ' + (data?.generationMode || 'fallback mode'));
       setImageData(''); setImageName('');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'DRO request failed');
-      setMessages(prev => [...prev, { role: 'assistant', text: fa ? 'این درخواست کامل نشد. خطا را بررسی کن و دوباره تلاش کن.' : 'This request did not complete. Check the error below and try again.', time: Date.now() }].slice(-80));
+      setMessages(prev => [...prev, { role: 'assistant' as const, text: fa ? 'این درخواست کامل نشد. خطا را بررسی کن و دوباره تلاش کن.' : 'This request did not complete. Check the error below and try again.', time: Date.now() }].slice(-80));
     } finally { setBusy(false); inputRef.current?.focus(); }
   };
   const clear = () => { if (busy) return; setMessages([]); setError(''); setImageData(''); setImageName(''); try { localStorage.removeItem('dro-full-chat-history'); } catch {} };
