@@ -19,7 +19,7 @@ export default function DROChatPage() {
   const [status, setStatus] = useState('Checking DRO engine…');
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [interval, setIntervalValue] = useState('15m');
-  const [fa, setFa] = useState(false);
+  const [fa, setFa] = useState(true);
   const [imageData, setImageData] = useState('');
   const [imageName, setImageName] = useState('');
   const [ready, setReady] = useState(false);
@@ -61,7 +61,7 @@ export default function DROChatPage() {
   const attach = (file?: File) => {
     if (!file) return;
     if (!['image/png','image/jpeg','image/webp'].includes(file.type)) { setError(fa ? 'فقط PNG، JPG یا WebP پشتیبانی می‌شود.' : 'Only PNG, JPG, or WebP images are supported.'); return; }
-    if (file.size > 12 * 1024 * 1024) { setError(fa ? 'حداکثر اندازه تصویر ۱۲ مگابایت است.' : 'Maximum image size is 12 MB.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError(fa ? 'برای جلوگیری از خطای درخواست، اندازه تصویر باید حداکثر ۵ مگابایت باشد.' : 'To avoid request-size errors, images must be 5 MB or smaller.'); return; }
     const reader = new FileReader(); reader.onload = () => { setImageData(String(reader.result || '')); setImageName(file.name); setError(''); }; reader.onerror = () => setError('Could not read image.'); reader.readAsDataURL(file);
   };
   const side: React.CSSProperties = { background: '#171717', padding: 14, display: 'flex', flexDirection: 'column', gap: 14, borderRight: '1px solid #303030' };
