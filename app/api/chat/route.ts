@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdvancedMarketData } from '@/lib/market-advanced';
-import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
+import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
 import { persistPrediction } from '@/lib/dro-learning-db';
@@ -195,11 +195,36 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const guard = consumeRateLimit(request, 'ai-chat', 20);
   if (!guard.allowed) return jsonError('Too many DRO requests. Please retry shortly.', 429, { retryAfterMs: guard.retryAfter * 1000 });
-  if (tooLarge(request, 8_000_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+  const MAX_BODY_BYTES = 8_000_000;
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+  }
 
   try {
     let body: any;
-    try { body = await request.json(); } catch { return jsonError('Invalid JSON request.', 400); }
+    try {
+      // Enforce the limit on the actual streamed body too; Content-Length may be absent
+      // or inaccurate, so do not rely on the header alone.
+      const reader = request.body?.getReader();
+      if (!reader) return jsonError('Request body is required.', 400);
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+        }
+        chunks.push(part.value);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch { return jsonError('Invalid JSON request.', 400); }
 
     const message = safeText(body?.message, 7000).trim();
     const context = safeText(body?.context, 16000);
