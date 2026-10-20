@@ -75,7 +75,7 @@ export async function analyzeChartImage(imageData:string,liveContext:unknown):Pr
 
   const userPayload={liveContext,task:'Extract a complete visual evidence packet from THIS chart. Cross-check only as a consistency aid; live context is not permission to invent image facts.',image:imageData};
   try{
-    const r=await fetch(endpoint+'/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${key}`},body:JSON.stringify({model,messages:[{role:'system',content:system},{role:'user',content:[{type:'text',text:JSON.stringify(userPayload)},{type:'image_url',image_url:{url:imageData,detail:'high'}}]}],temperature:0,max_tokens:2400}),cache:'no-store'});
+    const r=await fetch(endpoint+'/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${key}`},body:JSON.stringify({model,messages:[{role:'system',content:system},{role:'user',content:[{type:'text',text:JSON.stringify(userPayload)},{type:'image_url',image_url:{url:imageData,detail:'high'}}]}],temperature:0,max_tokens:2400}),cache:'no-store',signal:AbortSignal.timeout(15_000)});
     if(!r.ok){const t=await r.text().catch(()=> '');throw new Error(`Vision provider ${r.status}: ${t.slice(0,300)}`)}
     const j:any=await r.json();
     const text=typeof j?.choices?.[0]?.message?.content==='string'?j.choices[0].message.content:'';
