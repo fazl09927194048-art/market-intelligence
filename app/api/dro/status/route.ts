@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getMarketService } from '@/lib/market-provider';
-import { getPersistentMetrics } from '@/lib/dro-learning-db';
+import { getConversationStorageStatus, getPersistentMetrics } from '@/lib/dro-learning-db';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -59,6 +59,17 @@ export async function GET() {
     database = { configured: true, reachable: false, status: 'CHECK_FAILED' };
   }
 
+  let conversationStorage: Record<string, unknown> = {
+    configured: databaseConfigured,
+    reachable: false,
+    schemaReady: false,
+  };
+  try {
+    conversationStorage = await getConversationStorageStatus();
+  } catch {
+    conversationStorage = { configured: databaseConfigured, reachable: false, schemaReady: false };
+  }
+
   const coreReady = marketOk;
   return NextResponse.json({
     ok: coreReady,
@@ -73,6 +84,7 @@ export async function GET() {
     },
     market,
     database,
+    conversationStorage,
     notes: [
       'Provider configured means environment settings are present; it does not guarantee successful inference.',
       'Market readiness does not certify trade execution or profitability.',
