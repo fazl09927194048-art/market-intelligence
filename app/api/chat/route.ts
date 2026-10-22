@@ -271,7 +271,8 @@ export async function POST(request: NextRequest) {
     if (!clientHistory.length) {
       try { persistedHistory = await getPersistentConversation(sessionUserId, 12); } catch { persistedHistory = []; }
     }
-    const history = clientHistory.length ? clientHistory : persistedHistory.length ? persistedHistory : getConversationContext(12);
+    // Never fall back to process-global memory: it can mix different sessions on a shared server.
+    const history = clientHistory.length ? clientHistory : persistedHistory;
     const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
     const imageTradePlan = chartVision ? buildImageTradePlan(chartVision) : null;
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
