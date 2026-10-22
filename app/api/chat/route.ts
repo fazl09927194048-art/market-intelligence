@@ -234,7 +234,11 @@ export async function POST(request: NextRequest) {
 
     const message = safeText(body?.message, 7000).trim();
     const context = safeText(body?.context, 16000);
+    const hasImageField = body?.imageData !== undefined && body?.imageData !== null && body?.imageData !== '';
     const imageData = typeof body?.imageData === 'string' && /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/.test(body.imageData) ? body.imageData : '';
+    if (hasImageField && !imageData) {
+      return jsonError('Invalid chart image. Use a PNG, JPEG, or WebP image encoded as a base64 data URL.', 400);
+    }
     if (!message && !imageData) return jsonError('Message or chart image is required.', 400);
 
     const symbol = safeText(body?.symbol || context.match(/\"symbol\"\s*:\s*\"([A-Z0-9]+)\"/)?.[1] || 'BTCUSDT', 20).toUpperCase();
