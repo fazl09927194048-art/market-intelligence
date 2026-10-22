@@ -4,7 +4,6 @@ import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
 import { persistPrediction, getPersistentConversation, persistConversationMessage } from '@/lib/dro-learning-db';
-import { rememberConversation } from '@/lib/dro-learning';
 import { getSessionUserId } from '@/lib/exchange/session';
 import { resolveActiveTrades, executeCloseCommand as executeTrackedClose } from '@/lib/trade-command-engine';
 import { analyzeChartImage, buildImageTradePlan } from '@/lib/chart-vision';
@@ -297,7 +296,6 @@ export async function POST(request: NextRequest) {
       }
     }
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
-    rememberConversation('user', message);
     const prediction = recordPrediction({
       symbol,
       interval,
@@ -320,7 +318,6 @@ export async function POST(request: NextRequest) {
       if (message) await persistConversationMessage(sessionUserId, 'user', message).catch(() => false);
       const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);
       const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
-      rememberConversation('assistant', text);
       await persistConversationMessage(sessionUserId, 'assistant', text).catch(() => false);
       return {
         status: 200,
