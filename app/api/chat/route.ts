@@ -3,7 +3,7 @@ import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
-import { persistPrediction } from '@/lib/dro-learning-db';
+import { persistPrediction, getPersistentConversation, persistConversationMessage } from '@/lib/dro-learning-db';
 import { rememberConversation, getConversationContext } from '@/lib/dro-learning';
 import { getSessionUserId } from '@/lib/exchange/session';
 import { resolveActiveTrades, executeCloseCommand as executeTrackedClose } from '@/lib/trade-command-engine';
@@ -266,7 +266,12 @@ export async function POST(request: NextRequest) {
     }
 
     const clientHistory = normalizeHistory(body?.history);
-    const history = clientHistory.length ? clientHistory : getConversationContext(12);
+    const sessionUserId = await getSessionUserId();
+    let persistedHistory: any[] = [];
+    if (!clientHistory.length) {
+      try { persistedHistory = await getPersistentConversation(sessionUserId, 12); } catch { persistedHistory = []; }
+    }
+    const history = clientHistory.length ? clientHistory : persistedHistory.length ? persistedHistory : getConversationContext(12);
     const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
     const imageTradePlan = chartVision ? buildImageTradePlan(chartVision) : null;
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
@@ -311,9 +316,11 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       const responseCycle=imageData?{...centralIntelligence,chartVision,imageTradePlan}:centralIntelligence;
+      if (message) await persistConversationMessage(sessionUserId, 'user', message).catch(() => false);
       const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);
       const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
       rememberConversation('assistant', text);
+      await persistConversationMessage(sessionUserId, 'assistant', text).catch(() => false);
       return {
         status: 200,
         body: {
