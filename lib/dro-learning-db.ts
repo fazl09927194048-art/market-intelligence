@@ -140,3 +140,18 @@ export async function getPersistentConversation(userId: string, limit = 12) {
   );
   return rows.map((row: any) => ({ role: row.role === 'assistant' ? 'assistant' : 'user', text: String(row.text || '').slice(0, 2400), at: row.at }));
 }
+
+/** Report conversation-storage readiness without exposing database details or user data. */
+export async function getConversationStorageStatus() {
+  const db = getPool();
+  if (!db) return { configured: false, reachable: false, schemaReady: false };
+  try {
+    await ensureDroConversationSchema();
+    await db.query('SELECT 1');
+    return { configured: true, reachable: true, schemaReady: true };
+  } catch {
+    conversationSchemaReady = false;
+    return { configured: true, reachable: false, schemaReady: false };
+  }
+}
+
