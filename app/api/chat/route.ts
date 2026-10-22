@@ -4,7 +4,7 @@ import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
 import { persistPrediction, getPersistentConversation, persistConversationMessage } from '@/lib/dro-learning-db';
-import { rememberConversation, getConversationContext } from '@/lib/dro-learning';
+import { rememberConversation } from '@/lib/dro-learning';
 import { getSessionUserId } from '@/lib/exchange/session';
 import { resolveActiveTrades, executeCloseCommand as executeTrackedClose } from '@/lib/trade-command-engine';
 import { analyzeChartImage, buildImageTradePlan } from '@/lib/chart-vision';
