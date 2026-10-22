@@ -336,6 +336,10 @@ export async function POST(request: NextRequest) {
           fallbackReason: generated.mode === 'rules' ? generated.error || 'CHAT_PROVIDER_NOT_CONFIGURED' : null,
           apiKeyRequired: false,
           imageAttached: Boolean(imageData),
+          imageAnalysisStatus: !imageData ? 'NO_IMAGE' : chartVision?.available ? 'ANALYZED' : 'VISION_UNAVAILABLE',
+          imageAnalysisWarning: imageData && !chartVision?.available
+            ? (chartVision?.error || 'Vision evidence is unavailable; do not treat the image as semantically analyzed.')
+            : null,
           chartEnabled: Boolean(body?.toolContext?.chart),
           tradePlan: centralIntelligence.tradePlan,
           chartVision,
