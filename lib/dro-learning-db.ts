@@ -86,3 +86,72 @@ export async function evaluateDuePredictions(fetchOutcome: (row: { symbol: strin
   }
   return { evaluated, skipped, persistent: true };
 }
+
+
+/** Persist bounded, user-scoped conversation history when PostgreSQL is configured. */
+export async function persistConversationMessage(userId: string, role: 'user' | 'assistant', text: string) {
+  const db = getPool();
+  if (!db || !userId) return false;
+  const clean = String(text || '').trim().slice(0, 2400);
+  if (!clean) return false;
+  await ensureDroConversationSchema();
+  await db.query(
+    `INSERT INTO dro_conversation_messages (user_id, role, content) VALUES ($1, $2, $3)`,
+    [userId.slice(0, 180), role, clean]
+  );
+  await db.query(
+    `DELETE FROM dro_conversation_messages WHERE user_id = $1 AND id NOT IN (
+      SELECT id FROM dro_conversation_messages WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 40
+    )`, [userId.slice(0, 180)]
+  );
+  return true;
+}
+
+let conversationSchemaReady = false;
+async function ensureDroConversationSchema() {
+  const db = getPool();
+  if (!db || conversationSchemaReady) return Boolean(db);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS dro_conversation_messages (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_dro_conversation_user_created
+      ON dro_conversation_messages(user_id, created_at DESC, id DESC);
+  `);
+  conversationSchemaReady = true;
+  return true;
+}
+
+export async function getPersistentConversation(userId: string, limit = 12) {
+  const db = getPool();
+  if (!db || !userId) return [];
+  await ensureDroConversationSchema();
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit) || 12, 40));
+  const { rows } = await db.query(
+    `SELECT role, content AS text, created_at AS at FROM (
+      SELECT id, role, content, created_at FROM dro_conversation_messages
+      WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2
+    ) recent ORDER BY created_at ASC, id ASC`,
+    [userId.slice(0, 180), safeLimit]
+  );
+  return rows.map((row: any) => ({ role: row.role === 'assistant' ? 'assistant' : 'user', text: String(row.text || '').slice(0, 2400), at: row.at }));
+}
+
+/** Report conversation-storage readiness without exposing database details or user data. */
+export async function getConversationStorageStatus() {
+  const db = getPool();
+  if (!db) return { configured: false, reachable: false, schemaReady: false };
+  try {
+    await ensureDroConversationSchema();
+    await db.query('SELECT 1');
+    return { configured: true, reachable: true, schemaReady: true };
+  } catch {
+    conversationSchemaReady = false;
+    return { configured: true, reachable: false, schemaReady: false };
+  }
+}
+

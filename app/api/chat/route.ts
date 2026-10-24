@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { getAdvancedMarketData } from '@/lib/market-advanced';
-import { consumeRateLimit, tooLarge } from '@/lib/request-guard';
+import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
 import { recordPrediction } from '@/lib/dro-learning';
-import { persistPrediction } from '@/lib/dro-learning-db';
-import { rememberConversation, getConversationContext } from '@/lib/dro-learning';
+import { persistPrediction, getPersistentConversation, persistConversationMessage } from '@/lib/dro-learning-db';
 import { getSessionUserId } from '@/lib/exchange/session';
 import { resolveActiveTrades, executeCloseCommand as executeTrackedClose } from '@/lib/trade-command-engine';
 import { analyzeChartImage, buildImageTradePlan } from '@/lib/chart-vision';
@@ -56,7 +56,14 @@ function normalizeHistory(value: unknown) {
   })).filter((item: any) => item.text);
 }
 
-function isCloseCommand(message:string){const t=message.toLowerCase();return ['close','exit','sell','ببند','ببندش','بستن معامله','خارج شو','خروج بزن','سود کافی'].some(x=>t.includes(x))||(t.includes('ضرر')&&t.includes('ببند'))}
+function isCloseCommand(message:string){
+  const t=message.trim().toLowerCase().replace(/[.!؟]+$/,'').trim();
+  // Only explicit imperative commands may reach the trade-execution path.
+  // Questions or explanations that merely mention "close"/"sell" must stay conversational.
+  if (/^(?:please\s+)?(?:close|exit)\s+(?:(?:my|the)\s+)?(?:position|trade|now|it|half|50%|btc(?:usdt)?|eth(?:usdt)?|[a-z0-9]{3,12})$/i.test(t)) return true;
+  if (/^(?:please\s+)?sell\s+(?:(?:my|the)\s+)?(?:position|trade|all|half|50%|btc(?:usdt)?|eth(?:usdt)?|[a-z0-9]{3,12})$/i.test(t)) return true;
+  return /^(?:لطفاً\s*)?(?:معامله(?: را)? ببند|ببند(?:ش)?|بستن معامله|خارج شو|خروج بزن)(?:\s+[A-Z0-9]{3,12})?$/i.test(t);
+}
 async function executeCloseCommand(symbol:string,reason:string){
  const userId=await getSessionUserId();
  const trades=await resolveActiveTrades(userId,symbol);
@@ -195,15 +202,44 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const guard = consumeRateLimit(request, 'ai-chat', 20);
   if (!guard.allowed) return jsonError('Too many DRO requests. Please retry shortly.', 429, { retryAfterMs: guard.retryAfter * 1000 });
-  if (tooLarge(request, 8_000_000)) return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+  const MAX_BODY_BYTES = 8_000_000;
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+  }
 
   try {
     let body: any;
-    try { body = await request.json(); } catch { return jsonError('Invalid JSON request.', 400); }
+    try {
+      // Enforce the limit on the actual streamed body too; Content-Length may be absent
+      // or inaccurate, so do not rely on the header alone.
+      const reader = request.body?.getReader();
+      if (!reader) return jsonError('Request body is required.', 400);
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        total += part.value.byteLength;
+        if (total > MAX_BODY_BYTES) {
+          await reader.cancel().catch(() => undefined);
+          return jsonError('Request payload is too large. Compress the chart image and retry.', 413);
+        }
+        chunks.push(part.value);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      body = JSON.parse(new TextDecoder().decode(bytes));
+    } catch { return jsonError('Invalid JSON request.', 400); }
 
     const message = safeText(body?.message, 7000).trim();
     const context = safeText(body?.context, 16000);
+    const hasImageField = body?.imageData !== undefined && body?.imageData !== null && body?.imageData !== '';
     const imageData = typeof body?.imageData === 'string' && /^data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+$/.test(body.imageData) ? body.imageData : '';
+    if (hasImageField && !imageData) {
+      return jsonError('Invalid chart image. Use a PNG, JPEG, or WebP image encoded as a base64 data URL.', 400);
+    }
     if (!message && !imageData) return jsonError('Message or chart image is required.', 400);
 
     const symbol = safeText(body?.symbol || context.match(/\"symbol\"\s*:\s*\"([A-Z0-9]+)\"/)?.[1] || 'BTCUSDT', 20).toUpperCase();
@@ -234,7 +270,13 @@ export async function POST(request: NextRequest) {
     }
 
     const clientHistory = normalizeHistory(body?.history);
-    const history = clientHistory.length ? clientHistory : getConversationContext(12);
+    const sessionUserId = await getSessionUserId();
+    let persistedHistory: any[] = [];
+    if (!clientHistory.length) {
+      try { persistedHistory = await getPersistentConversation(sessionUserId, 12); } catch { persistedHistory = []; }
+    }
+    // Never fall back to process-global memory: it can mix different sessions on a shared server.
+    const history = clientHistory.length ? clientHistory : persistedHistory;
     const chartVision = imageData ? await analyzeChartImage(imageData,{symbol,interval,chartData,clientContext:context}) : null;
     const imageTradePlan = chartVision ? buildImageTradePlan(chartVision) : null;
     const centralIntelligence = await runIntelligenceCycle(symbol, interval, null, chartVision);
@@ -259,7 +301,6 @@ export async function POST(request: NextRequest) {
       }
     }
     // Every decision enters the measurable learning loop. No automatic production-code mutation is performed.
-    rememberConversation('user', message);
     const prediction = recordPrediction({
       symbol,
       interval,
@@ -270,7 +311,8 @@ export async function POST(request: NextRequest) {
       stopLoss: centralIntelligence?.tradePlan?.stopLoss ?? null,
     });
     void persistPrediction(prediction).catch(() => undefined);
-    const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageData.slice(0, 80)}`.slice(0, 50000);
+    const imageFingerprint = imageData ? createHash('sha256').update(imageData).digest('hex') : 'no-image';
+    const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageFingerprint}`.slice(0, 50000);
     const existing = inFlight.get(key);
     if (existing) {
       const result = await existing;
@@ -279,9 +321,10 @@ export async function POST(request: NextRequest) {
 
     const work = (async () => {
       const responseCycle=imageData?{...centralIntelligence,chartVision,imageTradePlan}:centralIntelligence;
+      if (message) await persistConversationMessage(sessionUserId, 'user', message).catch(() => false);
       const generated = await generateConversationalReply(message, history, responseCycle, chartVision, imageTradePlan);
       const text = generated.text || buildIndependentReply(responseCycle, message, Boolean(imageData), history);
-      rememberConversation('assistant', text);
+      await persistConversationMessage(sessionUserId, 'assistant', text).catch(() => false);
       return {
         status: 200,
         body: {
@@ -295,6 +338,10 @@ export async function POST(request: NextRequest) {
           fallbackReason: generated.mode === 'rules' ? generated.error || 'CHAT_PROVIDER_NOT_CONFIGURED' : null,
           apiKeyRequired: false,
           imageAttached: Boolean(imageData),
+          imageAnalysisStatus: !imageData ? 'NO_IMAGE' : chartVision?.available ? 'ANALYZED' : 'VISION_UNAVAILABLE',
+          imageAnalysisWarning: imageData && !chartVision?.available
+            ? (chartVision?.error || 'Vision evidence is unavailable; do not treat the image as semantically analyzed.')
+            : null,
           chartEnabled: Boolean(body?.toolContext?.chart),
           tradePlan: centralIntelligence.tradePlan,
           chartVision,
