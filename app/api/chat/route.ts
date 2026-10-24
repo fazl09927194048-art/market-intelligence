@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { getAdvancedMarketData } from '@/lib/market-advanced';
 import { consumeRateLimit } from '@/lib/request-guard';
 import { runIntelligenceCycle } from '@/lib/intelligence-loop';
@@ -310,7 +311,8 @@ export async function POST(request: NextRequest) {
       stopLoss: centralIntelligence?.tradePlan?.stopLoss ?? null,
     });
     void persistPrediction(prediction).catch(() => undefined);
-    const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageData.slice(0, 80)}`.slice(0, 50000);
+    const imageFingerprint = imageData ? createHash('sha256').update(imageData).digest('hex') : 'no-image';
+    const key = `${symbol}|${interval}|${message}|${JSON.stringify(body?.toolContext || {})}|${imageFingerprint}`.slice(0, 50000);
     const existing = inFlight.get(key);
     if (existing) {
       const result = await existing;
