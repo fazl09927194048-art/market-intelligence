@@ -8,7 +8,7 @@ type VisionResult = ChartVisionContext & {
   error?: string;
 };
 
-const finite=(v:unknown)=>Number.isFinite(Number(v));
+const finite=(v:unknown)=>v!==null&&v!==undefined&&!(typeof v==='string'&&v.trim()==='')&&(typeof v==='number'||typeof v==='string')&&Number.isFinite(Number(v));
 const clamp=(v:number,a=0,b=100)=>Math.max(a,Math.min(b,v));
 
 function parseJson(text:string):any{
