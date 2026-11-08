@@ -26,6 +26,8 @@ export default function DROChatPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const imageReaderRef = useRef<FileReader | null>(null);
+  const imageSelectionRef = useRef(0);
 
   useEffect(() => {
     try { const saved = JSON.parse(localStorage.getItem('dro-full-chat-history') || '[]'); if (Array.isArray(saved)) setMessages(saved.filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string').slice(-80)); } catch {}
@@ -57,12 +59,27 @@ export default function DROChatPage() {
       setMessages(prev => [...prev, { role: 'assistant' as const, text: fa ? 'این درخواست کامل نشد. خطا را بررسی کن و دوباره تلاش کن.' : 'This request did not complete. Check the error below and try again.', time: Date.now() }].slice(-80));
     } finally { setBusy(false); inputRef.current?.focus(); }
   };
-  const clear = () => { if (busy) return; setMessages([]); setError(''); setImageData(''); setImageName(''); try { localStorage.removeItem('dro-full-chat-history'); } catch {} };
+  const clear = () => { if (busy) return; imageSelectionRef.current += 1; imageReaderRef.current?.abort(); imageReaderRef.current = null; setMessages([]); setError(''); setImageData(''); setImageName(''); try { localStorage.removeItem('dro-full-chat-history'); } catch {} };
   const attach = (file?: File) => {
     if (!file) return;
     if (!['image/png','image/jpeg','image/webp'].includes(file.type)) { setError(fa ? 'فقط PNG، JPG یا WebP پشتیبانی می‌شود.' : 'Only PNG, JPG, or WebP images are supported.'); return; }
     if (file.size > 5 * 1024 * 1024) { setError(fa ? 'برای جلوگیری از خطای درخواست، اندازه تصویر باید حداکثر ۵ مگابایت باشد.' : 'To avoid request-size errors, images must be 5 MB or smaller.'); return; }
-    const reader = new FileReader(); reader.onload = () => { setImageData(String(reader.result || '')); setImageName(file.name); setError(''); }; reader.onerror = () => setError('Could not read image.'); reader.readAsDataURL(file);
+    imageSelectionRef.current += 1;
+    const selection = imageSelectionRef.current;
+    imageReaderRef.current?.abort();
+    const reader = new FileReader();
+    imageReaderRef.current = reader;
+    reader.onload = () => {
+      if (selection !== imageSelectionRef.current || imageReaderRef.current !== reader) return;
+      setImageData(String(reader.result || '')); setImageName(file.name); setError('');
+      imageReaderRef.current = null;
+    };
+    reader.onerror = () => {
+      if (selection !== imageSelectionRef.current) return;
+      setError('Could not read image.'); imageReaderRef.current = null;
+    };
+    reader.onabort = () => { if (imageReaderRef.current === reader) imageReaderRef.current = null; };
+    reader.readAsDataURL(file);
   };
   const side: React.CSSProperties = { background: '#171717', padding: 14, display: 'flex', flexDirection: 'column', gap: 14, borderRight: '1px solid #303030' };
   const panel: React.CSSProperties = { border: '1px solid #414141', background: '#252525', color: '#eee', borderRadius: 14, padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 12, alignItems: 'flex-start' };
