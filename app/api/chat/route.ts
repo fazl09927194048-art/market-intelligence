@@ -12,6 +12,7 @@ import { analyzeChartImage, buildImageTradePlan } from '@/lib/chart-vision';
 export const dynamic = 'force-dynamic';
 
 const inFlight = new Map<string, Promise<{ status: number; body: any }>>();
+const liveInFlight = new Map<string, Promise<any>>();
 const liveCache = new Map<string, { at: number; data: any }>();
 const LIVE_TTL = 3000;
 
@@ -33,13 +34,28 @@ async function getLive(symbol: string, interval: string) {
   const key = `${symbol}:${interval}`;
   const cached = liveCache.get(key);
   if (cached && Date.now() - cached.at < LIVE_TTL) return cached.data;
-  const data = await getAdvancedMarketData(symbol, interval, 80);
-  liveCache.set(key, { at: Date.now(), data });
-  if (liveCache.size > 40) {
-    const oldest = [...liveCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) liveCache.delete(oldest[0]);
+
+  // Collapse concurrent cache misses into one upstream market-data request.
+  const pending = liveInFlight.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const data = await getAdvancedMarketData(symbol, interval, 80);
+    liveCache.set(key, { at: Date.now(), data });
+    if (liveCache.size > 40) {
+      const oldest = [...liveCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (oldest) liveCache.delete(oldest[0]);
+    }
+    return data;
+  })();
+
+  liveInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    // Do not remove a newer request if this entry was replaced.
+    if (liveInFlight.get(key) === request) liveInFlight.delete(key);
   }
-  return data;
 }
 
 function money(value: unknown) {
